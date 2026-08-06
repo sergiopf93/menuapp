@@ -14,7 +14,7 @@ const Auth = (() => {
    * ⚠ REEMPLAZA ESTE VALOR con tu Client ID de Google Cloud Console.
    * Lo obtienes en: console.cloud.google.com → APIs y servicios → Credenciales
    */
-  const GOOGLE_CLIENT_ID = 'TU_CLIENT_ID_AQUI.apps.googleusercontent.com';
+  const GOOGLE_CLIENT_ID = '239981851235-35btnur92qg9to032gtvn8guocodpfph.apps.googleusercontent.com';
 
   /**
    * Scopes necesarios:
