@@ -10,12 +10,13 @@ const App = (() => {
 
   /** Estado global de la aplicación en memoria */
   const state = {
-    inventario: null,   // Array de artículos
-    platos:     null,   // Array de platos
-    config:     null,   // Objeto de configuración
-    menuActual: null,   // Menú de la semana actual (si existe)
-    compraActual: null, // Compra en curso (si existe)
-    usuario:    null,   // Info del usuario autenticado
+    inventario:  null,
+    platos:      null,
+    catalogo:    null,   // catálogo de artículos comprables
+    config:      null,
+    menuActual:  null,
+    compraActual:null,
+    usuario:     null,
   };
 
   // ── Arranque ─────────────────────────────────────────────────────
@@ -132,6 +133,10 @@ const App = (() => {
    * Carga inventario, platos y configuración desde Drive (o caché local).
    */
   async function _loadInitialData() {
+    UI.setLoadingMessage('Cargando catálogo de artículos...');
+    const cachedCatalogo = await Storage.get('cache_catalogo.json');
+    state.catalogo = cachedCatalogo || await Drive.readJson('catalogo.json') || [];
+
     UI.setLoadingMessage('Cargando inventario...');
     const cachedInventario = await Storage.get('cache_inventario.json');
     state.inventario = cachedInventario || await Drive.readJson('inventario.json') || [];
@@ -153,6 +158,7 @@ const App = (() => {
     await Storage.set('cache_inventario.json', state.inventario);
     await Storage.set('cache_platos.json',     state.platos);
     await Storage.set('cache_config.json',     state.config);
+    await Storage.set('cache_catalogo.json',   state.catalogo);
   }
 
   // ── Navegación ───────────────────────────────────────────────────
@@ -168,6 +174,7 @@ const App = (() => {
     switch (viewName) {
       case 'dashboard':  _renderDashboard();    break;
       case 'inventario': Inventario.render();   break;
+      case 'articulos':  Articulos.render();    break;
       case 'platos':     Platos.render();       break;
       case 'menu':       Menu.render();         break;
       case 'compra':     Compra.render();       break;
@@ -244,7 +251,7 @@ const App = (() => {
       </span></p>
       ${user ? `<p>👤 ${UI.escapeHtml(user.name)} (${UI.escapeHtml(user.email)})</p>` : ''}
       <p>${isOnline ? '🌐 Online' : '📴 Offline (modo caché)'}</p>
-      <p>📦 ${state.inventario?.length ?? 0} artículos · 🍽 ${state.platos?.length ?? 0} platos</p>
+      <p>📦 ${state.inventario?.length ?? 0} en despensa · 🛒 ${state.catalogo?.length ?? 0} artículos · 🍽 ${state.platos?.length ?? 0} platos</p>
     `;
   }
 
@@ -292,15 +299,10 @@ const App = (() => {
    * cuando otro usuario modifica los datos en Drive.
    */
   function _registerSyncListeners() {
-    Sync.onFileChange('inventario.json', (data) => {
-      state.inventario = data;
-    });
-    Sync.onFileChange('platos.json', (data) => {
-      state.platos = data;
-    });
-    Sync.onFileChange('config.json', (data) => {
-      state.config = data;
-    });
+    Sync.onFileChange('inventario.json', (data) => { state.inventario = data; });
+    Sync.onFileChange('platos.json',     (data) => { state.platos     = data; });
+    Sync.onFileChange('config.json',     (data) => { state.config     = data; });
+    Sync.onFileChange('catalogo.json',   (data) => { state.catalogo   = data; });
   }
 
   // ── Notificaciones ───────────────────────────────────────────────
