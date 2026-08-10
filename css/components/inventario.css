@@ -1,0 +1,265 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MenuApp — Estilos del módulo de Inventario + estilos compartidos
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Module header (compartido) ─────────────────────────────────── */
+.module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+.module-title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ─── Tabs de ubicación ──────────────────────────────────────────── */
+.inv-ubicacion-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.inv-ubicacion-tabs::-webkit-scrollbar { display: none; }
+
+.inv-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.inv-tab.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.inv-tab:active { opacity: .85; }
+
+/* ─── Barra de resumen ───────────────────────────────────────────── */
+.inv-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* ─── Grupo de ubicación ─────────────────────────────────────────── */
+.inv-group {
+  margin-bottom: var(--space-6);
+}
+
+/* ─── Tarjeta de artículo ────────────────────────────────────────── */
+.inv-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  box-shadow: var(--shadow-sm);
+  border-left: 3px solid transparent;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.inv-card--expired {
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+.inv-card--urgent {
+  border-left-color: var(--color-warning);
+}
+.inv-card--forced {
+  border-left-color: var(--color-primary);
+}
+
+.inv-card-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.inv-card-info { flex: 1; min-width: 0; }
+
+.inv-card-name {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+
+.inv-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.inv-card-categoria {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.inv-card-notas {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Control de cantidad ────────────────────────────────────────── */
+.inv-qty-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.inv-qty-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  border: 1.5px solid var(--color-border);
+  line-height: 1;
+}
+.inv-qty-btn:active {
+  background: var(--color-border);
+  transform: scale(.93);
+}
+.inv-qty-plus { color: var(--color-primary); border-color: var(--color-primary-light); }
+
+.inv-qty-display {
+  min-width: 52px;
+  text-align: center;
+}
+.inv-qty-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  display: block;
+  line-height: 1.1;
+}
+.inv-qty-unit {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* ─── Acciones de la tarjeta ─────────────────────────────────────── */
+.inv-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.inv-action-btn {
+  flex: 1;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all var(--transition-fast);
+}
+.inv-action-btn:active { opacity: .75; transform: scale(.96); }
+
+.inv-action-force        { color: var(--color-text-muted); }
+.inv-action-force.active { background: var(--color-primary-light); color: var(--color-primary); border-color: var(--color-primary); }
+.inv-action-edit         { color: var(--color-primary); }
+.inv-action-delete       { color: var(--color-danger); }
+
+/* ─── Autocomplete de categorías ─────────────────────────────────── */
+.categoria-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0; right: 0;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 300;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.categoria-option {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.categoria-option:hover { background: var(--color-primary-light); color: var(--color-primary); }
+
+/* ─── Checkbox personalizado ─────────────────────────────────────── */
+.inv-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.inv-checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (min-width: 480px) {
+  .inv-card-actions { gap: var(--space-3); }
+  .inv-action-btn { padding: var(--space-2) var(--space-3); }
+}
+
+@media (min-width: 768px) {
+  .inv-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 0 var(--space-4);
+  }
+  .inv-card-main { margin-bottom: 0; }
+  .inv-card-actions {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    flex-direction: column;
+    border-top: none;
+    border-left: 1px solid var(--color-border);
+    padding-top: 0;
+    padding-left: var(--space-3);
+    min-width: 48px;
+    justify-content: center;
+  }
+  .inv-action-btn { flex: none; width: 36px; height: 36px; }
+}
