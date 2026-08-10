@@ -1,0 +1,205 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MenuApp — Estilos del módulo de Compra (Fase 4)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Lista de revisión ──────────────────────────────────────────── */
+.compra-item-rev {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  box-shadow: var(--shadow-sm);
+}
+.compra-item-encasa { opacity: .6; }
+.compra-item-info { flex: 1; min-width: 0; }
+.compra-item-nombre {
+  display: block;
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compra-item-meta {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+.compra-item-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* ─── Añadir extra ───────────────────────────────────────────────── */
+.compra-add-extra {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ─── Details (en casa) ──────────────────────────────────────────── */
+.compra-details { border: none; }
+.compra-details summary { list-style: none; }
+.compra-details summary::-webkit-details-marker { display: none; }
+
+/* ─── Selección de supermercado ──────────────────────────────────── */
+.compra-super-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.compra-super-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: var(--space-5) var(--space-5);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+  transition: all var(--transition-fast);
+  width: 100%;
+}
+.compra-super-btn:active,
+.compra-super-btn.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.compra-super-nombre {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+.compra-super-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+/* ─── Modo compra ────────────────────────────────────────────────── */
+.compra-modo-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  position: sticky;
+  top: calc(var(--header-height));
+  background: var(--color-bg);
+  padding: var(--space-3) 0;
+  z-index: 50;
+}
+.compra-modo-titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Barra de progreso */
+.compra-progreso {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.compra-progreso-num {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-primary);
+  min-width: 40px;
+}
+.compra-progreso-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.compra-progreso-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-normal);
+}
+
+/* Sección del supermercado */
+.compra-seccion { margin-bottom: var(--space-5); }
+.compra-seccion-titulo { padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border); }
+
+/* Item en modo compra */
+.compra-item-modo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  transition: all var(--transition-fast);
+}
+.compra-item-comprado .compra-item-nombre {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+.compra-item-comprado { opacity: .65; }
+.compra-item-nodisponible { background: var(--color-danger-light); border-radius: var(--radius-md); }
+.compra-item-nodisponible .compra-item-nombre { color: var(--color-danger); }
+
+/* Checkbox visual */
+.compra-check-btn {
+  flex-shrink: 0;
+  padding: var(--space-1);
+}
+.compra-check {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid var(--color-border);
+  background: var(--color-surface);
+  transition: all var(--transition-fast);
+  position: relative;
+}
+.compra-check--on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.compra-check--on::after {
+  content: '';
+  position: absolute;
+  top: 5px; left: 8px;
+  width: 6px; height: 10px;
+  border: 2.5px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+/* Botón no disponible */
+.compra-nodisponible-btn {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--color-text-muted);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.compra-nodisponible-btn.active { color: var(--color-danger); }
+.compra-nodisponible-btn:hover  { background: var(--color-danger-light); }
+
+/* Footer fijo del modo compra */
+.compra-modo-footer {
+  position: sticky;
+  bottom: calc(var(--bottom-nav-h) + var(--space-2));
+  padding: var(--space-3) 0;
+  background: var(--color-bg);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .compra-super-lista { flex-direction: row; flex-wrap: wrap; }
+  .compra-super-btn   { flex: 1; min-width: 200px; }
+  .compra-item-modo   { padding: var(--space-3) var(--space-4); }
+}
