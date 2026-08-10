@@ -42,7 +42,13 @@
   gap: var(--space-2);
 }
 
-/* ─── Details (en casa) ──────────────────────────────────────────── */
+/* ─── Paneles de consulta rápida ─────────────────────────────────── */
+.compra-paneles-consulta {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
 .compra-details { border: none; }
 .compra-details summary { list-style: none; }
 .compra-details summary::-webkit-details-marker { display: none; }

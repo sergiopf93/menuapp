@@ -212,3 +212,220 @@
   .menu-th-dia { min-width: 100px; }
   .menu-td { padding: var(--space-3) var(--space-2); max-width: 120px; }
 }
+
+/* ─── Calendario horizontal (v2) ─────────────────────────────────── */
+.menu-calendario-wrapper {
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-surface);
+}
+
+.menu-cal {
+  display: flex;
+  background: var(--color-surface);
+  min-height: 220px;
+}
+
+/* Columna de etiquetas fija a la izquierda */
+.menu-cal-labels {
+  flex-shrink: 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  border-right: 2px solid var(--color-border);
+  z-index: 2;
+  background: var(--color-surface);
+}
+
+.menu-cal-label-header {
+  height: 56px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.menu-cal-bloque-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-1);
+}
+
+.menu-cal-momento-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--color-primary);
+  margin-bottom: var(--space-1);
+}
+
+.menu-cal-perfiles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.menu-cal-perfiles span {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* Área scrollable de días */
+.menu-cal-scroll {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+  flex: 1;
+}
+
+/* Columna de un día */
+.menu-cal-col {
+  flex-shrink: 0;
+  width: 88px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+}
+
+.menu-cal-col--hoy   { background: var(--color-primary-light); }
+.menu-cal-col--finde { background: var(--color-surface-2); }
+
+/* Cabecera del día */
+.menu-cal-dia-header {
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--color-border);
+  gap: 1px;
+  position: relative;
+}
+
+.menu-cal-dia-nombre {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--color-text-secondary);
+}
+
+.menu-cal-dia-num {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.menu-cal-dia-mes {
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.menu-cal-hoy-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  position: absolute;
+  bottom: 4px;
+}
+
+.menu-cal-col--hoy .menu-cal-dia-num { color: var(--color-primary); }
+
+/* Bloque comida/cena dentro de una columna */
+.menu-cal-bloque {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.menu-cal-bloque:last-child { border-bottom: none; }
+
+/* Celda de un perfil (adultos / bebé) */
+.menu-cal-perfil {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--color-text);
+  border-bottom: 1px dashed var(--color-border);
+  display: flex;
+  align-items: center;
+  word-break: break-word;
+}
+
+.menu-cal-perfil:last-child { border-bottom: none; }
+
+.menu-cal-perfil--bebe {
+  background: rgba(59,130,246,.04);
+  color: var(--color-text-secondary);
+}
+
+.menu-cal-perfil--esp {
+  color: var(--color-text-muted);
+  justify-content: center;
+  font-style: italic;
+}
+
+/* Celda editable */
+.menu-cal-perfil--edit {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.menu-cal-perfil--edit:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+/* Separador de semana */
+.menu-cal-sep-semana {
+  flex-shrink: 0;
+  width: 6px;
+  background: var(--color-border);
+}
+
+/* ─── Panel de consulta en el asistente ──────────────────────────── */
+.menu-info-panels {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.menu-info-panel {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.menu-panel-content { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.menu-panel-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  gap: var(--space-2);
+}
+.menu-panel-item:last-child { border-bottom: none; }
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .menu-cal-col   { width: 110px; }
+  .menu-cal-labels{ width: 88px; }
+  .menu-cal-perfil{ font-size: 11px; padding: var(--space-2); }
+}
