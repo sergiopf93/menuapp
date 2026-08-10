@@ -1,0 +1,214 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MenuApp — Estilos del módulo de Menú (Fase 3)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Asistente ──────────────────────────────────────────────────── */
+.menu-asistente { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.menu-asist-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ─── Barra de progreso ──────────────────────────────────────────── */
+.menu-progress {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: var(--space-2);
+}
+.menu-progress-step {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--color-border);
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+  transition: all var(--transition-normal);
+}
+.menu-progress-step.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.menu-progress-step.done {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+.menu-progress-line {
+  flex: 1;
+  height: 2px;
+  background: var(--color-border);
+}
+
+/* ─── Paso genérico ──────────────────────────────────────────────── */
+.menu-paso { display: flex; flex-direction: column; gap: var(--space-4); }
+.menu-paso-desc { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.menu-paso-footer { margin-top: var(--space-2); }
+
+/* ─── Control de semanas ─────────────────────────────────────────── */
+.menu-semanas-ctrl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: fit-content;
+}
+
+/* ─── Días especiales ────────────────────────────────────────────── */
+.menu-dias-especiales {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 50dvh;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.menu-dia-esp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.menu-dia-finde { background: var(--color-primary-light); }
+
+.menu-dia-esp-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 52px;
+}
+.menu-dia-nombre { font-weight: 700; font-size: var(--font-size-sm); }
+.menu-dia-fecha  { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* ─── Alertas de inventario ──────────────────────────────────────── */
+.menu-inv-alertas { margin-bottom: var(--space-4); }
+
+/* ─── Tabla de menú ──────────────────────────────────────────────── */
+.menu-tabla-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-4);
+}
+
+.menu-tabla {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+  background: var(--color-surface);
+  font-size: var(--font-size-xs);
+}
+
+/* Headers de días */
+.menu-th-dia {
+  padding: var(--space-2) var(--space-1);
+  text-align: center;
+  border-bottom: 2px solid var(--color-border);
+  min-width: 72px;
+  color: var(--color-text-secondary);
+}
+.menu-th-hoy {
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
+.menu-th-nombre { display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; }
+.menu-th-num    { display: block; font-size: 18px; font-weight: 700; line-height: 1.2; }
+.menu-th-esp    { display: block; font-size: 9px; color: var(--color-warning); font-weight: 700; }
+.menu-th-momento { width: 24px; }
+
+/* Fila de label de bloque */
+.menu-tr-label td {
+  padding: var(--space-2) var(--space-3);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-2);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Celdas de plato */
+.menu-td {
+  padding: var(--space-2) var(--space-1);
+  text-align: center;
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  vertical-align: middle;
+  line-height: 1.3;
+  max-width: 90px;
+  word-break: break-word;
+}
+.menu-td-vacio  { color: var(--color-text-muted); }
+.menu-td-especial { background: var(--color-surface-2); color: var(--color-text-muted); font-style: italic; }
+.menu-td-esp-label { font-size: 10px; }
+.menu-td-rowlabel {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding-right: var(--space-1);
+  width: 24px;
+  white-space: nowrap;
+}
+
+/* Tabla editable */
+.menu-tabla-editable .menu-td-editable {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.menu-tabla-editable .menu-td-editable:hover {
+  background: var(--color-primary-light);
+}
+.menu-td-nombre { display: block; }
+
+/* ─── Semana activa en dashboard de menú ─────────────────────────── */
+.menu-semana-activa { margin-bottom: var(--space-6); }
+
+/* ─── Popup de selección de plato ───────────────────────────────── */
+.popup-plato-list {
+  max-height: 55dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.popup-plato-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  text-align: left;
+  transition: all var(--transition-fast);
+  width: 100%;
+}
+.popup-plato-item:hover, .popup-plato-item:active {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+.popup-plato-nombre { font-weight: 600; font-size: var(--font-size-sm); }
+.popup-plato-meta   {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+/* ─── Paso tabla ─────────────────────────────────────────────────── */
+.menu-paso-tabla { display: flex; flex-direction: column; }
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .menu-tabla { font-size: var(--font-size-sm); }
+  .menu-th-dia { min-width: 100px; }
+  .menu-td { padding: var(--space-3) var(--space-2); max-width: 120px; }
+}
