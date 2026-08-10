@@ -112,6 +112,9 @@ const App = (() => {
       Sync.start();
       _registerSyncListeners();
 
+      // Inicia sistema de notificaciones
+      Notificaciones.init();
+
       // Muestra banner PWA si aplica
       UI.maybeShowPWABanner();
 
@@ -178,7 +181,7 @@ const App = (() => {
       case 'platos':     Platos.render();       break;
       case 'menu':       Menu.render();         break;
       case 'compra':     Compra.render();       break;
-      case 'historial':  Historial.render();    break;
+      case 'historial':  Historial.render();     break;
       case 'config':     Configuracion.render(); break;
     }
   }
