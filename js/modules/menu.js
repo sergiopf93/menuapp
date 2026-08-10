@@ -750,7 +750,11 @@ const Menu = (() => {
     await Drive.writeMenuJson(fileName, _menuEnCurso);
 
     // Programa las notificaciones previas
-    await _programarNotificaciones(_menuEnCurso);
+    const notifs = Notificaciones.generarParaMenu(_menuEnCurso);
+    const config = { ...(App.getState().config || {}) };
+    if (!config.notificaciones) config.notificaciones = {};
+    config.notificaciones.pendientes = notifs;
+    await App.setState('config', config);
 
     UI.showToast('Menú confirmado ✓ Generando lista de la compra...','success', 3000);
 
