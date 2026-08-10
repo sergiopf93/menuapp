@@ -186,3 +186,21 @@
   .menu-cal-labels { width:88px; }
   .menu-cal-celda  { font-size:11px; padding:var(--space-2); }
 }
+
+/* ─── Día especial en calendario ─────────────────────────────────── */
+.menu-cal-col--especial {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(245,158,11,.08) 4px,
+    rgba(245,158,11,.08) 8px
+  );
+}
+.menu-cal-col--especial .menu-cal-dia-num { color: var(--color-warning); }
+.menu-cal-esp-dot {
+  font-size: 10px;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
