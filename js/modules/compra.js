@@ -91,9 +91,17 @@ const Compra = (() => {
       </div>
 
       <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
-        Menú del ${Dates.format(menuActual.fechaInicio)} al ${Dates.format(menuActual.fechaFin)}.
+        Menú del ${Dates.format(menuActual.fechaInicio,'numeric')} al ${Dates.format(menuActual.fechaFin,'numeric')}.
         Revisa y ajusta antes de ir al supermercado.
       </p>
+
+      <!-- Paneles consulta rápida -->
+      <div class="compra-paneles-consulta">
+        <button class="btn btn-secondary btn-sm" id="compra-panel-menu-btn">📅 Ver menú</button>
+        <button class="btn btn-secondary btn-sm" id="compra-panel-inv-btn">📦 Ver despensa</button>
+      </div>
+      <div id="compra-panel-menu" class="menu-info-panel hidden"></div>
+      <div id="compra-panel-inv"  class="menu-info-panel hidden"></div>
 
       <!-- Resumen -->
       <div class="inv-summary-bar" style="margin-bottom:var(--space-4)">
@@ -171,6 +179,60 @@ const Compra = (() => {
   }
 
   function _bindListaEvents() {
+    // Panel menú
+    const panelMenuBtn = document.getElementById('compra-panel-menu-btn');
+    const panelMenuEl  = document.getElementById('compra-panel-menu');
+    panelMenuBtn?.addEventListener('click', () => {
+      if (panelMenuEl.classList.contains('hidden')) {
+        const menu = App.getState().menuActual;
+        if (!menu) { panelMenuEl.innerHTML='<p class="text-sm text-muted">Sin menú activo.</p>'; }
+        else {
+          const dias = menu.dias || [];
+          panelMenuEl.innerHTML = `
+            <div class="menu-panel-content">
+              <h3 class="section-title" style="margin-bottom:var(--space-3)">📅 Menú activo</h3>
+              ${dias.map(d=>`
+                <div class="menu-panel-item" style="flex-direction:column;align-items:flex-start">
+                  <strong style="font-size:var(--font-size-xs)">${Dates.format(d.fecha,'short')}</strong>
+                  ${['comida','cena'].map(m=>{
+                    const b=d[m]; if(!b?.activo) return '';
+                    const pl=(b.platosMayores||[]).map(p=>p.nombre).join(' + ');
+                    return pl?`<span class="text-xs text-muted">${m==='comida'?'🍽':'🌙'} ${pl}</span>`:'';
+                  }).join('')}
+                </div>`).join('')}
+            </div>`;
+        }
+        panelMenuEl.classList.remove('hidden');
+        panelMenuBtn.textContent = '📅 Ocultar menú';
+      } else {
+        panelMenuEl.classList.add('hidden');
+        panelMenuBtn.textContent = '📅 Ver menú';
+      }
+    });
+
+    // Panel inventario
+    const panelInvBtn = document.getElementById('compra-panel-inv-btn');
+    const panelInvEl  = document.getElementById('compra-panel-inv');
+    panelInvBtn?.addEventListener('click', () => {
+      if (panelInvEl.classList.contains('hidden')) {
+        const inv = App.getState().inventario || [];
+        panelInvEl.innerHTML = `
+          <div class="menu-panel-content">
+            <h3 class="section-title" style="margin-bottom:var(--space-3)">📦 Despensa</h3>
+            ${inv.length===0?'<p class="text-sm text-muted">Vacía.</p>':
+              inv.map(i=>`<div class="menu-panel-item">
+                <span class="text-sm">${UI.escapeHtml(i.nombre)}</span>
+                <span class="text-xs text-muted">${i.cantidad} ${i.unidad}</span>
+              </div>`).join('')}
+          </div>`;
+        panelInvEl.classList.remove('hidden');
+        panelInvBtn.textContent = '📦 Ocultar despensa';
+      } else {
+        panelInvEl.classList.add('hidden');
+        panelInvBtn.textContent = '📦 Ver despensa';
+      }
+    });
+
     document.getElementById('compra-btn-regenerar')?.addEventListener('click', async () => {
       const state = App.getState();
       const menu = state.menuActual || await _buscarMenuActual();
@@ -508,11 +570,12 @@ const Compra = (() => {
             const artCat = catalogo.find(a=>a.nombre.toLowerCase()===key);
             if (!necesidades[key]) {
               necesidades[key] = {
-                nombre:        artCat?.nombre || ing.nombre,
-                seccion:       artCat?.categoria || ing.categoria || 'Otros',
-                cantidad:      0,
-                unidad:        artCat?.unidad || ing.unidad || 'UN',
-                paqueteMinimo: artCat?.paqueteMinimo || 1,
+                nombre:          artCat?.nombre || ing.nombre,
+                seccion:         artCat?.categoria || ing.categoria || 'Otros',
+                cantidad:        0,
+                unidad:          artCat?.unidad || ing.unidad || 'UN',
+                paqueteMinimo:   artCat?.paqueteMinimo || 1,
+                unidadesPorPack: artCat?.unidadesPorPack || 1,
               };
             }
             necesidades[key].cantidad += (ing.cantidad || 1);
@@ -521,30 +584,43 @@ const Compra = (() => {
       });
     });
 
-    // Cruza con inventario: resta stock disponible
+    // Cruza con inventario: resta stock disponible y calcula packs a comprar
     const items = Object.values(necesidades).map((nec, idx) => {
       const key = nec.nombre.toLowerCase();
       const stockItems = inventario.filter(i=>i.nombre.toLowerCase()===key);
       const stockTotal = stockItems.reduce((s,i)=>s+(i.cantidad||0), 0);
 
-      // Calcula cantidad a comprar
-      let cantidadFinal = Math.max(0, nec.cantidad - stockTotal);
-      // Redondea al paquete mínimo superior
-      if (cantidadFinal > 0 && nec.paqueteMinimo > 1) {
-        cantidadFinal = Math.ceil(cantidadFinal / nec.paqueteMinimo) * nec.paqueteMinimo;
+      // Cantidad neta que falta (en unidades de consumo)
+      const falta = Math.max(0, nec.cantidad - stockTotal);
+
+      let packsAComprar = 0;
+      let cantidadFinal = 0;
+
+      if (falta > 0) {
+        // unidadesPorPack: cuántas unidades de consumo contiene 1 pack
+        const uppack = nec.unidadesPorPack || 1;
+        // Cuántos packs necesito para cubrir la falta
+        packsAComprar = Math.ceil(falta / uppack);
+        // Redondea al paqueteMinimo (mínimo de packs que se pueden comprar juntos)
+        const minPacks = nec.paqueteMinimo || 1;
+        packsAComprar = Math.ceil(packsAComprar / minPacks) * minPacks;
+        cantidadFinal = packsAComprar;
       }
 
       return {
-        id:           `item-${Date.now()}-${idx}`,
-        nombre:       nec.nombre,
-        seccion:      nec.seccion,
-        cantidad:     cantidadFinal > 0 ? cantidadFinal : nec.cantidad,
-        unidad:       nec.unidad,
-        paqueteMinimo:nec.paqueteMinimo,
-        enDespensa:   stockTotal >= nec.cantidad,
-        comprado:     false,
-        noDisponible: false,
-        esExtra:      false,
+        id:            `item-${Date.now()}-${idx}`,
+        nombre:        nec.nombre,
+        seccion:       nec.seccion,
+        cantidad:      falta > 0 ? cantidadFinal : 0,
+        cantidadNeta:  nec.cantidad,   // cuánto necesita el menú
+        stockEnCasa:   stockTotal,     // cuánto hay en inventario
+        unidad:        nec.unidad,
+        unidadesPorPack: nec.unidadesPorPack || 1,
+        paqueteMinimo: nec.paqueteMinimo,
+        enDespensa:    stockTotal >= nec.cantidad,
+        comprado:      false,
+        noDisponible:  false,
+        esExtra:       false,
       };
     });
 

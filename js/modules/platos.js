@@ -221,7 +221,7 @@ const Platos = (() => {
 
         ${(plato.etiquetas||[]).length>0?`
           <div class="pl-card-etiquetas">
-            ${plato.etiquetas.map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}
+            ${[...new Set(plato.etiquetas||[])].map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}
           </div>`:''}
 
         <div class="pl-card-meta">

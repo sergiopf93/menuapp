@@ -329,6 +329,17 @@ const Articulos = (() => {
       </div>
 
       <div class="form-group">
+        <label class="form-label" for="art-f-uppack">Unidades de consumo por pack</label>
+        <input class="form-control" id="art-f-uppack" type="number"
+               min="1" step="0.1" value="${art?.unidadesPorPack||1}"/>
+        <p class="form-hint">
+          ¿Cuántas unidades de consumo contiene 1 pack?<br>
+          Ej: 1 brick de leche = 1 L. 1 pack huevos = 6 UN. 1 bote tomate = 400 GR.
+          Esto permite calcular correctamente cuántos packs comprar.
+        </p>
+      </div>
+
+      <div class="form-group">
         <label class="form-label" for="art-f-notas">Notas</label>
         <textarea class="form-control" id="art-f-notas" rows="2"
                   placeholder="Ej: Mejor marca X, sin gluten..."
@@ -372,6 +383,7 @@ const Articulos = (() => {
     const categoria= document.getElementById('art-f-cat')?.value.trim();
     const unidad   = document.getElementById('art-f-unidad')?.value;
     const paquete  = parseInt(document.getElementById('art-f-paquete')?.value)||1;
+    const uppack   = parseFloat(document.getElementById('art-f-uppack')?.value)||1;
     const notas    = document.getElementById('art-f-notas')?.value.trim()||null;
     const activo   = document.getElementById('art-f-activo')?.checked !== false;
 
@@ -391,12 +403,12 @@ const Articulos = (() => {
     if (artOriginal) {
       const idx = catalogo.findIndex(a=>a.id===artOriginal.id);
       if (idx===-1) return;
-      catalogo[idx]={...catalogo[idx],nombre,categoria,unidad,paqueteMinimo:paquete,notas,activo,actualizadoEn:ahora};
+      catalogo[idx]={...catalogo[idx],nombre,categoria,unidad,paqueteMinimo:paquete,unidadesPorPack:uppack,notas,activo,actualizadoEn:ahora};
       UI.showToast(`${nombre} actualizado`,'success');
     } else {
       catalogo.push({
         id:`cat-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        nombre,categoria,unidad,paqueteMinimo:paquete,notas,activo,actualizadoEn:ahora,
+        nombre,categoria,unidad,paqueteMinimo:paquete,unidadesPorPack:uppack,notas,activo,actualizadoEn:ahora,
       });
       UI.showToast(`${nombre} añadido al catálogo`,'success');
     }
