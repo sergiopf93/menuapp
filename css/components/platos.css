@@ -1,0 +1,253 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MenuApp — Estilos del módulo de Platos (Fase 2)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Filtros ────────────────────────────────────────────────────── */
+.pl-filtros {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+.pl-filtro-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pl-filtro-label {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  min-width: 58px;
+  flex-shrink: 0;
+}
+
+/* ─── Chips ──────────────────────────────────────────────────────── */
+.pl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.pl-chip {
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-2);
+  border: 1.5px solid var(--color-border);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pl-chip.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.pl-chip:active { opacity: .8; }
+
+.pl-chips--form .pl-chip { padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
+
+/* ─── Resumen ────────────────────────────────────────────────────── */
+.pl-summary-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* ─── Tarjeta de plato ───────────────────────────────────────────── */
+.pl-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-sm);
+  transition: opacity var(--transition-fast);
+}
+.pl-card--inactivo { opacity: .6; }
+
+.pl-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.pl-card-titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.pl-card-nombre {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ─── Toggle activo ──────────────────────────────────────────────── */
+.pl-toggle-btn {
+  flex-shrink: 0;
+  padding: 4px;
+}
+
+.pl-toggle {
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  position: relative;
+  transition: background var(--transition-normal);
+}
+.pl-toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--transition-normal);
+  box-shadow: var(--shadow-sm);
+}
+.pl-toggle--on {
+  background: var(--color-primary);
+}
+.pl-toggle--on::after {
+  transform: translateX(18px);
+}
+
+/* ─── Badges de la tarjeta ───────────────────────────────────────── */
+.pl-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+/* ─── Etiquetas ──────────────────────────────────────────────────── */
+.pl-card-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.pl-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+.pl-etiqueta--editable { cursor: default; }
+
+.pl-etiqueta-rm {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-primary);
+  opacity: .7;
+  padding: 0 2px;
+}
+.pl-etiqueta-rm:hover { opacity: 1; }
+
+/* ─── Meta ───────────────────────────────────────────────────────── */
+.pl-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.pl-meta-item { display: flex; align-items: center; gap: 4px; }
+
+.pl-meta-notif {
+  color: var(--color-text-muted);
+  font-style: italic;
+  width: 100%;
+}
+
+/* ─── Editor de etiquetas ────────────────────────────────────────── */
+.pl-etiquetas-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pl-etiquetas-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: var(--space-2);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.pl-etiquetas-sugeridas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.pl-etiqueta-sug {
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+.pl-etiqueta-sug:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* ─── Fila de ingrediente ────────────────────────────────────────── */
+.pl-ing-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pl-ing-select { min-width: 0; }
+
+/* ─── Botón editar plato ─────────────────────────────────────────── */
+.pl-action-edit {
+  color: var(--color-primary);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .pl-filtros { flex-direction: row; flex-wrap: wrap; gap: var(--space-3); }
+  .pl-filtro-group { flex: 1; min-width: 200px; align-items: center; }
+  .pl-ing-row { flex-wrap: nowrap; }
+}
