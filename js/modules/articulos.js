@@ -283,15 +283,24 @@ const Articulos = (() => {
     const art = id?(state.catalogo||[]).find(a=>a.id===id):null;
     const container = document.createElement('div');
     container.innerHTML = _buildForm(art);
-    UI.showModal({
+
+    // Referencia al modal para cerrarlo explícitamente desde _submitForm
+    let modalRef = null;
+
+    modalRef = UI.showModal({
       title: art?`Editar — ${art.nombre}`:'Añadir artículo al catálogo',
       content: container,
       buttons:[
-        {label:'Cancelar',type:'secondary'},
-        {label:art?'Guardar cambios':'Añadir',type:'primary',onClick:()=>_submitForm(art)},
+        {label:'Cancelar', type:'secondary'},
+        {label:art?'Guardar cambios':'Añadir', type:'primary', onClick: async () => {
+          const ok = await _submitForm(art);
+          if (ok && modalRef) modalRef.close();
+        }},
       ],
     });
-    setTimeout(_initFormEvents, 100);
+
+    // Vincula eventos del formulario DESPUÉS de que el modal inyectó el HTML en el DOM
+    setTimeout(_initFormEvents, 50);
   }
 
   function _buildForm(art) {
@@ -379,42 +388,48 @@ const Articulos = (() => {
   }
 
   async function _submitForm(artOriginal) {
+    // Lee valores directamente del DOM en el momento del submit
     const nombre   = document.getElementById('art-f-nombre')?.value.trim();
     const categoria= document.getElementById('art-f-cat')?.value.trim();
     const unidad   = document.getElementById('art-f-unidad')?.value;
-    const paquete  = parseInt(document.getElementById('art-f-paquete')?.value)||1;
-    const uppack   = parseFloat(document.getElementById('art-f-uppack')?.value)||1;
+    const paqueteEl= document.getElementById('art-f-paquete');
+    const uppackEl = document.getElementById('art-f-uppack');
+    const paquete  = paqueteEl ? (parseInt(paqueteEl.value)||1) : 1;
+    const uppack   = uppackEl  ? (parseFloat(uppackEl.value)||1) : 1;
     const notas    = document.getElementById('art-f-notas')?.value.trim()||null;
-    const activo   = document.getElementById('art-f-activo')?.checked !== false;
+    const activoEl = document.getElementById('art-f-activo');
+    const activo   = activoEl ? activoEl.checked : true;
 
-    if (!nombre)    { UI.showToast('El nombre es obligatorio','error'); return; }
-    if (!categoria) { UI.showToast('La categoría es obligatoria','error'); return; }
+    if (!nombre)    { UI.showToast('El nombre es obligatorio','error'); return false; }
+    if (!categoria) { UI.showToast('La categoría es obligatoria','error'); return false; }
 
     const state = App.getState();
     const catalogo = [...(state.catalogo||[])];
     const ahora = new Date().toISOString();
 
-    // Comprueba duplicados por nombre
     const duplicado = catalogo.find(a =>
       a.nombre.toLowerCase()===nombre.toLowerCase() && a.id!==(artOriginal?.id)
     );
-    if (duplicado) { UI.showToast(`Ya existe "${nombre}" en el catálogo`,'error'); return; }
+    if (duplicado) { UI.showToast(`Ya existe "${nombre}" en el catálogo`,'error'); return false; }
 
     if (artOriginal) {
       const idx = catalogo.findIndex(a=>a.id===artOriginal.id);
-      if (idx===-1) return;
-      catalogo[idx]={...catalogo[idx],nombre,categoria,unidad,paqueteMinimo:paquete,unidadesPorPack:uppack,notas,activo,actualizadoEn:ahora};
+      if (idx===-1) return false;
+      catalogo[idx]={...catalogo[idx],nombre,categoria,unidad,
+        paqueteMinimo:paquete,unidadesPorPack:uppack,notas,activo,actualizadoEn:ahora};
       UI.showToast(`${nombre} actualizado`,'success');
     } else {
       catalogo.push({
         id:`cat-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        nombre,categoria,unidad,paqueteMinimo:paquete,unidadesPorPack:uppack,notas,activo,actualizadoEn:ahora,
+        nombre,categoria,unidad,paqueteMinimo:paquete,unidadesPorPack:uppack,
+        notas,activo,actualizadoEn:ahora,
       });
       UI.showToast(`${nombre} añadido al catálogo`,'success');
     }
 
     await App.setState('catalogo', catalogo);
     _renderList();
+    return true; // señal de éxito para que el modal se cierre
   }
 
   // ── Utils ────────────────────────────────────────────────────────

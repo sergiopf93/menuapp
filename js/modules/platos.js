@@ -263,6 +263,7 @@ const Platos = (() => {
     platos[idx] = {...platos[idx], activo: platos[idx].activo===false ? true : false,
                    actualizadoEn: new Date().toISOString()};
     await App.setState('platos', platos);
+    return true;
     UI.showToast(platos[idx].activo!==false?`${platos[idx].nombre} activado`:`${platos[idx].nombre} desactivado`,'info');
     _renderList();
   }
@@ -277,6 +278,7 @@ const Platos = (() => {
     if (!ok) return;
     const platos = (state.platos||[]).filter(p => p.id!==id);
     await App.setState('platos', platos);
+    return true;
     UI.showToast(`${plato.nombre} eliminado`,'success');
     _renderList();
   }
@@ -286,18 +288,22 @@ const Platos = (() => {
   function openForm(id=null) {
     const state = App.getState();
     const plato = id?(state.platos||[]).find(p=>p.id===id):null;
-    const catalogo = Articulos.getCatalogo(); // ← usa el catálogo, no el inventario
+    const catalogo = Articulos.getCatalogo();
     const container = document.createElement('div');
     container.innerHTML = _buildForm(plato, catalogo);
-    UI.showModal({
+    let modalRef = null;
+    modalRef = UI.showModal({
       title: plato?`Editar — ${plato.nombre}`:'Añadir plato',
       content: container,
       buttons:[
         {label:'Cancelar',type:'secondary'},
-        {label:plato?'Guardar cambios':'Añadir plato',type:'primary',onClick:()=>_submitForm(plato)},
+        {label:plato?'Guardar cambios':'Añadir plato',type:'primary',onClick:async()=>{
+          const ok = await _submitForm(plato);
+          if(ok && modalRef) modalRef.close();
+        }},
       ],
     });
-    setTimeout(()=>_initFormEvents(catalogo),100);
+    setTimeout(()=>_initFormEvents(catalogo),50);
   }
 
   function _buildForm(plato, inventario) {
@@ -595,11 +601,11 @@ const Platos = (() => {
 
   async function _submitForm(platoOriginal) {
     const nombre = document.getElementById('pl-f-nombre')?.value.trim();
-    if (!nombre) { UI.showToast('El nombre es obligatorio','error'); return; }
+    if (!nombre) { UI.showToast('El nombre es obligatorio','error'); return false; }
 
     // tipoMenu
     const tipoMenu = [...document.querySelectorAll('.pl-chip-tipomenu.active')].map(c=>c.dataset.val);
-    if (!tipoMenu.length) { UI.showToast('Selecciona para quién es el plato','error'); return; }
+    if (!tipoMenu.length) { UI.showToast('Selecciona para quién es el plato','error'); return false; }
 
     // tipoPlato
     const tipoPlato = document.querySelector('.pl-chip-tipoplato.active')?.dataset.val || 'unico';
@@ -658,6 +664,7 @@ const Platos = (() => {
     }
 
     await App.setState('platos', platos);
+    return true;
     _renderList();
   }
 
