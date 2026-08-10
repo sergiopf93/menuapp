@@ -20,7 +20,7 @@ const Auth = (() => {
    * Scopes necesarios:
    * - drive.file: acceso solo a ficheros creados por la app (más seguro que drive completo)
    */
-  const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+  const SCOPES = 'https://www.googleapis.com/auth/drive.file openid email profile';
 
   let _accessToken = null;
   let _tokenExpiry = null;
