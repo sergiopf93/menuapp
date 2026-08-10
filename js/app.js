@@ -168,6 +168,7 @@ const App = (() => {
     switch (viewName) {
       case 'dashboard':  _renderDashboard();    break;
       case 'inventario': Inventario.render();   break;
+      case 'platos':     Platos.render();       break;
       case 'menu':       Menu.render();         break;
       case 'compra':     Compra.render();       break;
       case 'historial':  Historial.render();    break;
