@@ -218,7 +218,8 @@ const Platos = (() => {
           <span class="badge badge-gray">${tipoComidaLabel}</span>
           ${plato.frecuenciaMinSemanas?`<span class="badge badge-gray">↻ cada ${plato.frecuenciaMinSemanas}sem</span>`:''}
           ${plato.permiteRepeticion?`<span class="badge badge-green">↻ repite</span>`:''}
-          ${plato.diasSobras?`<span class="badge badge-blue">🍲 ${plato.diasSobras}d sobras</span>`:''}        </div>
+          ${plato.diasSobras?`<span class="badge badge-blue">🍲 ${plato.diasSobras}d sobras</span>`:''}
+          ${plato.preparacionFacil?`<span class="badge badge-green">⚡ Fácil</span>`:''}        </div>
 
         ${(plato.etiquetas||[]).length>0?`
           <div class="pl-card-etiquetas">
@@ -380,6 +381,15 @@ const Platos = (() => {
         <input class="form-control" id="pl-f-sobras-dias" type="number" min="1" max="6"
                value="${plato?.diasSobras||2}"/>
         <p class="form-hint">Ej: 2 = además del día que se cocina, el bebé come ese plato 2 días más.</p>
+      </div>
+
+      <!-- Preparación fácil -->
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="pl-f-facil" ${plato?.preparacionFacil?'checked':''}/>
+          <span class="form-label" style="margin:0">⚡ Preparación fácil</span>
+        </label>
+        <p class="form-hint">Ensaladas, tortillas, bocadillos, platos de despensa... El generador los prioriza en días fáciles.</p>
       </div>
 
       <!-- Frecuencia -->
@@ -637,6 +647,7 @@ const Platos = (() => {
 
     const frecuencia = parseInt(document.getElementById('pl-f-freq')?.value)||2;
     const repetir    = document.getElementById('pl-f-repetir')?.checked || false;
+    const facil      = document.getElementById('pl-f-facil')?.checked || false;
     const sobrasCb   = document.getElementById('pl-f-sobras-cb')?.checked || false;
     const diasSobras = sobrasCb ? (parseInt(document.getElementById('pl-f-sobras-dias')?.value)||2) : 0;
     const notifCb    = document.getElementById('pl-f-notif-cb')?.checked;
@@ -668,6 +679,7 @@ const Platos = (() => {
       nombre, tipoMenu, tipoPlato, tipoComida,
       frecuenciaMinSemanas: frecuencia,
       permiteRepeticion: repetir,
+      preparacionFacil: facil,
       diasSobras: diasSobras || 0,
       notificacionPrevia: notifCb ? notifTexto : null,
       horasNotificacionPrevia: notifCb ? notifHoras : null,

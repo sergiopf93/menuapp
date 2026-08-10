@@ -293,6 +293,7 @@ const Configuracion = (() => {
               <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
                 ${t.afectaComida?'<span class="badge badge-orange">Sin comida</span>':''}
                 ${t.afectaCena?'<span class="badge badge-orange">Sin cena</span>':''}
+                ${t.esDiaFacil?'<span class="badge badge-green">⚡ Día fácil</span>':''}
                 <span class="badge badge-gray">Afecta: ${t.afectaA==='todos'?'todos':t.afectaA==='mayores'?'adultos':'bebé'}</span>
               </div>
             </div>
@@ -340,6 +341,23 @@ const Configuracion = (() => {
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="cfg-e-facil" ${t?.esDiaFacil?'checked':''}/>
+          <span class="form-label" style="margin:0">⚡ Día fácil</span>
+        </label>
+        <p class="form-hint">El generador priorizará platos de preparación fácil y sobras. No anula ninguna comida.</p>
+      </div>
+      <div id="cfg-e-facil-block" style="${t?.esDiaFacil?'':'display:none'}">
+        <div class="form-group">
+          <label class="form-label">Aplicar en</label>
+          <div class="pl-chips pl-chips--form">
+            <button type="button" class="pl-chip cfg-facil-chip ${!t?.facilMomentos||t?.facilMomentos?.includes('comida')?'active':''}" data-val="comida">🍽 Comida</button>
+            <button type="button" class="pl-chip cfg-facil-chip ${!t?.facilMomentos||t?.facilMomentos?.includes('cena')?'active':''}" data-val="cena">🌙 Cena</button>
+          </div>
+          <p class="form-hint">Selecciona en qué momentos del día se aplica el filtro de platos fáciles.</p>
+        </div>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="cfg-e-comida" ${t?.afectaComida!==false?'checked':''}/>
           <span class="form-label" style="margin:0">Anula la comida del mediodía</span>
         </label>
@@ -350,7 +368,7 @@ const Configuracion = (() => {
           <span class="form-label" style="margin:0">Anula la cena</span>
         </label>
       </div>`;
-    UI.showModal({
+    let modalRef = UI.showModal({
       title:t?`Editar — ${t.nombre}`:'Nuevo tipo de día especial',
       content:container,
       buttons:[
@@ -358,10 +376,16 @@ const Configuracion = (() => {
         {label:'Guardar',type:'primary',onClick:async()=>{
           const nombre=document.getElementById('cfg-e-nombre')?.value.trim();
           if(!nombre){UI.showToast('El nombre es obligatorio','error');return;}
+          const esFacil = document.getElementById('cfg-e-facil')?.checked||false;
+          const facilMomentos = esFacil
+            ? [...document.querySelectorAll('.cfg-facil-chip.active')].map(c=>c.dataset.val)
+            : [];
           const nuevo={
             id:t?.id||`esp-${Date.now()}`,
             nombre,
             afectaA:document.getElementById('cfg-e-afecta')?.value||'todos',
+            esDiaFacil: esFacil,
+            facilMomentos: facilMomentos.length ? facilMomentos : ['comida','cena'],
             afectaComida:document.getElementById('cfg-e-comida')?.checked||false,
             afectaCena:document.getElementById('cfg-e-cena')?.checked||false,
             generaMayores:false,
@@ -372,10 +396,23 @@ const Configuracion = (() => {
           if(idx!==-1) tipos[idx]=nuevo; else tipos.push(nuevo);
           await _saveConfig({tiposDiaEspecial:tipos});
           UI.showToast('Guardado','success');
+          if(modalRef) modalRef.close();
           _renderSeccion();
         }},
       ],
     });
+
+    // Vincula toggle del día fácil y chips de momentos
+    setTimeout(() => {
+      const facilCb    = document.getElementById('cfg-e-facil');
+      const facilBlock = document.getElementById('cfg-e-facil-block');
+      facilCb?.addEventListener('change', () => {
+        if(facilBlock) facilBlock.style.display = facilCb.checked ? '' : 'none';
+      });
+      document.querySelectorAll('.cfg-facil-chip').forEach(chip => {
+        chip.addEventListener('click', () => chip.classList.toggle('active'));
+      });
+    }, 50);
   }
 
   // ── Sección: Generador ───────────────────────────────────────────

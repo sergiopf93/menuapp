@@ -516,8 +516,15 @@ const Menu = (() => {
       const comidaBebAct = !tipoEsp?.afectaComida || afectaA==='mayores';
       const cenaMayAct   = !tipoEsp?.afectaCena   || afectaA==='bebe';
       const cenaBebAct   = !tipoEsp?.afectaCena   || afectaA==='mayores';
+      // Día fácil: esDiaFacil=true → prioriza platos fáciles en los momentos configurados
+      // facilComida/facilCena son independientes de afectaComida/afectaCena
+      // Un tipo puede ser "fácil en comida" sin anular la cena, y viceversa
+      const esDiaFacil    = !!(tipoEsp?.esDiaFacil);
+      const facilComida   = esDiaFacil && (tipoEsp?.facilMomentos?.includes('comida') ?? true);
+      const facilCena     = esDiaFacil && (tipoEsp?.facilMomentos?.includes('cena')   ?? true);
       return {
         fecha, diaSemana:Dates.dayName(fecha), tipoEspecial:tipoEspId,
+        esDiaFacil, facilComida, facilCena,
         comida:{ activo:comidaMayAct||(tieneBebe&&comidaBebAct),
           platosMayores:[], platosBebe:tieneBebe?[]:null,
           _mayActivo:comidaMayAct, _bebeActivo:comidaBebAct },
@@ -547,7 +554,8 @@ const Menu = (() => {
         if(blComida._mayActivo){
           const cands = _filtrarCandidatos({platos:platosActivos, tipoMenu:'mayores',
             momento:'comida', usadosSemana, usadosReciente, artsPrioritarios,
-            protPorDia, diaIndex:di, esCena:false, cfgMenus});
+            protPorDia, diaIndex:di, esCena:false, cfgMenus,
+            soloFacil: dia.facilComida});  // día fácil en comida: solo platos fáciles
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             _incUsado(usadosSemana, p.id);
@@ -613,7 +621,8 @@ const Menu = (() => {
         if(blCena._mayActivo){
           const cands = _filtrarCandidatos({platos:platosActivos, tipoMenu:'mayores',
             momento:'cena', usadosSemana, usadosReciente, artsPrioritarios,
-            protPorDia, diaIndex:di, esCena:true, cfgMenus, forzarUnico:true});
+            protPorDia, diaIndex:di, esCena:true, cfgMenus, forzarUnico:true,
+            soloFacil: dia.facilCena});
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             blCena.platosMayores = [{id:p.id,nombre:p.nombre}];
@@ -694,10 +703,10 @@ const Menu = (() => {
   // ── Filtro candidatos adultos ────────────────────────────────────
 
   function _filtrarCandidatos({platos,tipoMenu,momento,usadosSemana,usadosReciente,
-    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico}){
+    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil}){
     const eqCC = cfgMenus?.equilibrioComidaCena !== false;
     const eqP  = cfgMenus?.equilibrioProteinas  !== false;
-    const MAX  = 2; // máx veces por semana adultos
+    const MAX  = 2;
     return platos.filter(p=>{
       if(tipoMenu==='bebe'    && !p.tipoMenu?.includes('bebe')    && !p.tipoMenu?.includes('todos')) return false;
       if(tipoMenu==='mayores' && !p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
@@ -705,10 +714,11 @@ const Menu = (() => {
       if(forzarUnico && p.tipoPlato !== 'unico') return false;
       if(!soloTipo && !forzarUnico && p.tipoPlato === 'segundo') return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      // Límite de 2 apariciones por semana para adultos
       if((usadosSemana.get(p.id)||0) >= MAX) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
+      // Día fácil: solo platos marcados como preparación fácil
+      if(soloFacil && !p.preparacionFacil) return false;
       if(eqCC && esCena){
         const etqs = (p.etiquetas||[]).map(e=>e.toLowerCase());
         if(etqs.some(e=>['legumbre','guiso','cocido','paella','fabada'].includes(e))) return false;
