@@ -140,16 +140,43 @@ const UI = (() => {
    */
   function confirm(message, confirmLabel = 'Confirmar') {
     return new Promise((resolve) => {
-      const modal = showModal({
-        title: '¿Estás seguro?',
-        content: `<p class="text-sm">${message}</p>`,
-        buttons: [
-          { label: 'Cancelar',    type: 'secondary', onClick: () => resolve(false) },
-          { label: confirmLabel,  type: 'danger',    onClick: () => resolve(true) },
-        ],
-      });
-      // Si cierra con X, considera que canceló
-      modal._resolve = resolve;
+      let _resolved = false;
+
+      function done(value) {
+        if (_resolved) return;
+        _resolved = true;
+        // Cierra el overlay manualmente
+        document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+        resolve(value);
+      }
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.setAttribute('role', 'alertdialog');
+      modal.setAttribute('aria-modal', 'true');
+
+      modal.innerHTML = `
+        <div class="modal-header">
+          <h2 class="modal-title">¿Estás seguro?</h2>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm">${message}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="confirm-cancel">Cancelar</button>
+          <button class="btn btn-danger"    id="confirm-ok">${confirmLabel}</button>
+        </div>
+      `;
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      modal.querySelector('#confirm-cancel').addEventListener('click', () => done(false));
+      modal.querySelector('#confirm-ok').addEventListener('click',     () => done(true));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
     });
   }
 
@@ -161,10 +188,19 @@ const UI = (() => {
    * @param {string} viewId
    */
   function activateView(viewId) {
-    // Views
+    // Oculta todas las views activas
     document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-    const target = document.getElementById(`view-${viewId}`);
-    if (target) target.classList.add('active');
+
+    // Activa la view destino — si no existe todavía, la crea vacía
+    // para que los módulos puedan encontrarla con getElementById
+    let target = document.getElementById(`view-${viewId}`);
+    if (!target) {
+      target = document.createElement('div');
+      target.id = `view-${viewId}`;
+      target.className = 'view';
+      document.getElementById('app-content')?.appendChild(target);
+    }
+    target.classList.add('active');
 
     // Bottom nav
     document.querySelectorAll('.nav-item').forEach((item) => {
