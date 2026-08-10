@@ -535,13 +535,14 @@ const Menu = (() => {
     });
 
     _setGenMsg('Generando platos...');
-    const usadosSemana   = new Map();  // platoId → veces usado esta semana (adultos)
-    const usadosBebe     = new Set();  // platoId → usado esta semana (bebe, sin limite salvo sobras)
+    const usadosSemana   = new Map();  // platoId → [diasUsados] para detectar días consecutivos
+    const usadosBebe     = new Set();
     const protPorDia     = {};
     const cfgMenus       = config?.configuracionMenus || {};
-    const sobrasBebe     = {};         // platoId → días restantes de sobras
+    const sobrasBebe     = {};         // platoId → días restantes
 
-    const MAX_SEMANA_ADULTOS = 2;      // máximo de veces que un plato puede aparecer por semana para adultos
+    const MAX_SEMANA     = 2;          // máx veces por semana adultos
+    const MAX_CONSECUTIVOS = 1;        // máx días seguidos el mismo plato adultos
 
     for(let di=0; di<dias.length; di++){
       const dia = dias[di];
@@ -550,66 +551,40 @@ const Menu = (() => {
       const blComida = dia.comida;
       if(blComida.activo){
 
-        // 1. Adultos comida — primero+segundo o único
+        // 1. Adultos comida
         if(blComida._mayActivo){
-          const cands = _filtrarCandidatos({platos:platosActivos, tipoMenu:'mayores',
-            momento:'comida', usadosSemana, usadosReciente, artsPrioritarios,
+          const cands = _filtrarMayores({
+            platos:platosActivos, momento:'comida',
+            usadosSemana, usadosReciente, artsPrioritarios,
             protPorDia, diaIndex:di, esCena:false, cfgMenus,
-            soloFacil: dia.facilComida});  // día fácil en comida: solo platos fáciles
+            soloFacil: dia.facilComida,
+          });
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
-            _incUsado(usadosSemana, p.id);
+            _registrarMayor(usadosSemana, p.id, di);
             _registrarProteina(protPorDia, di, p);
             if((p.diasSobras||0) > 0 && tieneBebe)
               sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
 
             if(p.tipoPlato === 'primero'){
-              const segundo = _elegirSegundo(platosActivos, usadosSemana, usadosReciente, cfgMenus, 'comida');
+              const segundo = _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, di, 'comida');
               blComida.platosMayores = segundo
                 ? [{id:p.id,nombre:p.nombre},{id:segundo.id,nombre:segundo.nombre}]
                 : [{id:p.id,nombre:p.nombre}];
-              if(segundo) _incUsado(usadosSemana, segundo.id);
+              if(segundo) _registrarMayor(usadosSemana, segundo.id, di);
             } else {
               blComida.platosMayores = [{id:p.id,nombre:p.nombre}];
             }
           }
         }
 
-        // 2. Bebé comida — siempre primero+segundo salvo plato único
+        // 2. Bebé comida
         if(tieneBebe && blComida._bebeActivo){
-          const platosAdultos = blComida.platosMayores || [];
-
-          // Intenta usar mismo plato que adultos si es compatible con bebé
-          const compatAdultos = platosAdultos.filter(pa => {
-            const db = platosActivos.find(p => p.id === pa.id);
-            return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
-          });
-
-          if(compatAdultos.length > 0){
-            // Bebé come lo mismo que adultos
-            blComida.platosBebe = _asegurarDosPlatos(compatAdultos, platosActivos,
-              usadosBebe, usadosReciente, cfgMenus, 'comida', sobrasBebe);
-          } else {
-            // Sobras o plato propio
-            const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
-            if(sobra){
-              sobrasBebe[sobra.id]--;
-              if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
-              blComida.platosBebe = _completarConSegundo([{id:sobra.id,nombre:sobra.nombre}],
-                platosActivos, sobra, usadosBebe, usadosReciente, cfgMenus, 'comida');
-            } else {
-              const cands = _filtrarCandidatosBebe(platosActivos, 'comida', usadosBebe, usadosReciente, cfgMenus);
-              const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
-              if(p){
-                usadosBebe.add(p.id);
-                if((p.diasSobras||0) > 0) sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
-                blComida.platosBebe = _completarConSegundo([{id:p.id,nombre:p.nombre}],
-                  platosActivos, p, usadosBebe, usadosReciente, cfgMenus, 'comida');
-              } else {
-                blComida.platosBebe = compatAdultos.length ? compatAdultos : platosAdultos;
-              }
-            }
-          }
+          blComida.platosBebe = _generarBloqueBebeComida(
+            blComida.platosMayores, platosActivos,
+            usadosBebe, usadosReciente, artsPrioritarios,
+            sobrasBebe, cfgMenus, dia.facilComida, inventario||[]
+          );
         }
       }
 
@@ -619,51 +594,32 @@ const Menu = (() => {
 
         // 1. Adultos cena — siempre plato único
         if(blCena._mayActivo){
-          const cands = _filtrarCandidatos({platos:platosActivos, tipoMenu:'mayores',
-            momento:'cena', usadosSemana, usadosReciente, artsPrioritarios,
-            protPorDia, diaIndex:di, esCena:true, cfgMenus, forzarUnico:true,
-            soloFacil: dia.facilCena});
+          const cands = _filtrarMayores({
+            platos:platosActivos, momento:'cena',
+            usadosSemana, usadosReciente, artsPrioritarios,
+            protPorDia, diaIndex:di, esCena:true, cfgMenus,
+            forzarUnico:true, soloFacil: dia.facilCena,
+          });
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             blCena.platosMayores = [{id:p.id,nombre:p.nombre}];
-            _incUsado(usadosSemana, p.id);
+            _registrarMayor(usadosSemana, p.id, di);
             _registrarProteina(protPorDia, di, p);
           }
         }
 
-        // 2. Bebé cena — sobras > compat adultos > propio; siempre primero+segundo salvo único
+        // 2. Bebé cena
         if(tieneBebe && blCena._bebeActivo){
-          const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
-          if(sobra){
-            sobrasBebe[sobra.id]--;
-            if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
-            blCena.platosBebe = _completarConSegundo([{id:sobra.id,nombre:sobra.nombre}],
-              platosActivos, sobra, usadosBebe, usadosReciente, cfgMenus, 'cena');
-          } else {
-            // ¿El plato de cena de adultos es compatible con bebé?
-            const platoCenaAd = blCena.platosMayores?.[0];
-            const dbCenaAd = platoCenaAd
-              ? platosActivos.find(p => p.id===platoCenaAd.id &&
-                  (p.tipoMenu.includes('todos') || p.tipoMenu.includes('bebe')))
-              : null;
-            if(dbCenaAd){
-              blCena.platosBebe = _completarConSegundo([{id:dbCenaAd.id,nombre:dbCenaAd.nombre}],
-                platosActivos, dbCenaAd, usadosBebe, usadosReciente, cfgMenus, 'cena');
-            } else {
-              const cands = _filtrarCandidatosBebe(platosActivos, 'cena', usadosBebe, usadosReciente, cfgMenus);
-              const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
-              if(p){
-                usadosBebe.add(p.id);
-                blCena.platosBebe = _completarConSegundo([{id:p.id,nombre:p.nombre}],
-                  platosActivos, p, usadosBebe, usadosReciente, cfgMenus, 'cena');
-              } else {
-                blCena.platosBebe = blCena.platosMayores || [];
-              }
-            }
-          }
+          blCena.platosBebe = _generarBloqueBebeConSobras(
+            blCena.platosMayores, platosActivos,
+            usadosBebe, usadosReciente, artsPrioritarios,
+            sobrasBebe, cfgMenus, dia.facilCena, 'cena', inventario||[]
+          );
         }
       }
     }
+
+
     _menuEnCurso.dias=dias;
     _menuEnCurso.generadoEn=new Date().toISOString();
     _setGenMsg('¡Listo!');
@@ -696,112 +652,76 @@ const Menu = (() => {
 
   // ── Contador de uso adultos (máx 2 veces por semana) ────────────
 
-  function _incUsado(usadosSemana, id) {
-    usadosSemana.set(id, (usadosSemana.get(id)||0) + 1);
+  // ── Registro de uso adultos ──────────────────────────────────────
+
+  /**
+   * Registra que un plato adulto se usó en el día diaIndex.
+   * Guarda array de días para detectar consecutivos.
+   */
+  function _registrarMayor(usadosSemana, id, diaIndex) {
+    if(!usadosSemana.has(id)) usadosSemana.set(id, []);
+    usadosSemana.get(id).push(diaIndex);
   }
 
   // ── Filtro candidatos adultos ────────────────────────────────────
 
-  function _filtrarCandidatos({platos,tipoMenu,momento,usadosSemana,usadosReciente,
+  function _filtrarMayores({platos,momento,usadosSemana,usadosReciente,
     artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil}){
     const eqCC = cfgMenus?.equilibrioComidaCena !== false;
     const eqP  = cfgMenus?.equilibrioProteinas  !== false;
     const MAX  = 2;
+
     return platos.filter(p=>{
-      if(tipoMenu==='bebe'    && !p.tipoMenu?.includes('bebe')    && !p.tipoMenu?.includes('todos')) return false;
-      if(tipoMenu==='mayores' && !p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
+      // Solo platos para adultos
+      if(!p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
       if(soloTipo && p.tipoPlato !== soloTipo) return false;
       if(forzarUnico && p.tipoPlato !== 'unico') return false;
       if(!soloTipo && !forzarUnico && p.tipoPlato === 'segundo') return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      if((usadosSemana.get(p.id)||0) >= MAX) return false;
+
+      // Límite semanal
+      const diasUsados = usadosSemana.get(p.id) || [];
+      if(diasUsados.length >= MAX) return false;
+
+      // No repetir en días consecutivos
+      if(diasUsados.length > 0){
+        const ultimoDia = diasUsados[diasUsados.length - 1];
+        if(diaIndex - ultimoDia <= 1) return false;  // día inmediatamente anterior → rechaza
+      }
+
+      // Frecuencia mínima entre semanas
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
-      // Día fácil: solo platos marcados como preparación fácil
+
+      // Día fácil
       if(soloFacil && !p.preparacionFacil) return false;
+
+      // Equilibrio comida/cena
       if(eqCC && esCena){
         const etqs = (p.etiquetas||[]).map(e=>e.toLowerCase());
         if(etqs.some(e=>['legumbre','guiso','cocido','paella','fabada'].includes(e))) return false;
       }
+
+      // Equilibrio proteínas
       if(eqP && diaIndex >= 2){
         const prot = _detectarProteina(p);
         if(prot && protPorDia[diaIndex-1]===prot && protPorDia[diaIndex-2]===prot) return false;
       }
+
       return true;
     });
   }
 
-  // ── Filtro candidatos bebé ───────────────────────────────────────
-
-  function _filtrarCandidatosBebe(platos, momento, usadosBebe, usadosReciente, cfgMenus) {
-    return platos.filter(p => {
-      if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
-      if(p.tipoPlato === 'segundo') return false; // los segundos se buscan aparte
-      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
-      const minSem = p.frecuenciaMinSemanas || 2;
-      if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
-      return true;
-    });
-  }
-
-  /**
-   * Dado un array de platos iniciales del bebé, si el primer plato es de tipo "primero",
-   * busca un segundo compatible. Si es "único", devuelve tal cual.
-   */
-  function _completarConSegundo(platosRef, platosActivos, platoObjeto, usadosBebe, usadosReciente, cfgMenus, momento) {
-    if(!platoObjeto || platoObjeto.tipoPlato === 'unico' || platoObjeto.tipoPlato !== 'primero') {
-      return platosRef;
-    }
-    const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, cfgMenus, momento);
-    if(segundo){
-      usadosBebe.add(segundo.id);
-      return [...platosRef, {id:segundo.id, nombre:segundo.nombre}];
-    }
-    return platosRef;
-  }
-
-  /**
-   * Si el bebé hereda platos de adultos, asegura que tenga dos platos
-   * si el primero no es de tipo "único".
-   */
-  function _asegurarDosPlatos(compatAdultos, platosActivos, usadosBebe, usadosReciente, cfgMenus, momento, sobrasBebe) {
-    if(compatAdultos.length >= 2) return compatAdultos;
-    const primerRef = compatAdultos[0];
-    const primerDB  = platosActivos.find(p => p.id === primerRef?.id);
-    if(!primerDB || primerDB.tipoPlato === 'unico') return compatAdultos;
-    // Necesita segundo
-    const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, cfgMenus, momento);
-    if(segundo){
-      usadosBebe.add(segundo.id);
-      return [...compatAdultos, {id:segundo.id, nombre:segundo.nombre}];
-    }
-    return compatAdultos;
-  }
-
-  /** Busca un "segundo" compatible con el bebé */
-  function _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, cfgMenus, momento) {
-    const cands = platosActivos.filter(p => {
-      if(p.tipoPlato !== 'segundo') return false;
-      if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
-      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
-      return true;
-    });
-    if(!cands.length) return null;
-    return cands[Math.floor(Math.random() * cands.length)];
-  }
-
-  /**
-   * Busca un "segundo" para adultos.
-   */
-  function _elegirSegundo(platosActivos, usadosSemana, usadosReciente, cfgMenus, momento) {
+  /** Busca un segundo para adultos */
+  function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento) {
     const MAX = 2;
     const cands = platosActivos.filter(p => {
       if(p.tipoPlato !== 'segundo') return false;
       if(!p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      if((usadosSemana.get(p.id)||0) >= MAX) return false;
+      const diasUsados = usadosSemana.get(p.id) || [];
+      if(diasUsados.length >= MAX) return false;
+      if(diasUsados.length > 0 && diaIndex - diasUsados[diasUsados.length-1] <= 1) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
       return true;
@@ -810,9 +730,164 @@ const Menu = (() => {
     return cands[Math.floor(Math.random() * cands.length)];
   }
 
+  // ── Generación bloque bebé ───────────────────────────────────────
+
   /**
-   * Elige el plato con más sobras disponibles.
+   * Genera el bloque de bebé para la COMIDA.
+   * Prioridad: compat con adultos → sobras → plato propio.
+   * Siempre garantiza primero+segundo salvo plato único.
    */
+  function _generarBloqueBebeComida(platosAdultos, platosActivos, usadosBebe,
+    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, inventario) {
+
+    // Platos de adultos que son compatibles con bebé
+    const compatAdultos = (platosAdultos||[]).filter(pa => {
+      const db = platosActivos.find(p => p.id === pa.id);
+      return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
+    });
+
+    if(compatAdultos.length > 0){
+      // Bebé come lo mismo que adultos — asegurar que tenga primero+segundo si toca
+      return _asegurarPrimeroSegundo(compatAdultos, platosActivos, usadosBebe, usadosReciente, 'comida');
+    }
+
+    // Sobras disponibles
+    const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
+    if(sobra){
+      sobrasBebe[sobra.id]--;
+      if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
+      return _completarPrimeroSegundo([{id:sobra.id,nombre:sobra.nombre}],
+        platosActivos, sobra, usadosBebe, usadosReciente, 'comida');
+    }
+
+    // Plato propio de bebé
+    const cands = _filtrarCandidatosBebe(platosActivos, 'comida', usadosBebe, usadosReciente);
+    const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
+    if(p){
+      usadosBebe.add(p.id);
+      if((p.diasSobras||0) > 0) sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
+      return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
+        platosActivos, p, usadosBebe, usadosReciente, 'comida');
+    }
+
+    return compatAdultos.length ? compatAdultos : (platosAdultos||[]);
+  }
+
+  /**
+   * Genera el bloque de bebé para la CENA.
+   * Prioridad: sobras → compat adultos → plato propio.
+   */
+  function _generarBloqueBebeConSobras(platosAdultos, platosActivos, usadosBebe,
+    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, momento, inventario) {
+
+    // Sobras primero en cena
+    const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
+    if(sobra){
+      sobrasBebe[sobra.id]--;
+      if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
+      return _completarPrimeroSegundo([{id:sobra.id,nombre:sobra.nombre}],
+        platosActivos, sobra, usadosBebe, usadosReciente, momento);
+    }
+
+    // ¿Plato de adultos compatible con bebé?
+    const platoCenaAd = (platosAdultos||[])[0];
+    const dbCenaAd = platoCenaAd
+      ? platosActivos.find(p => p.id===platoCenaAd.id &&
+          (p.tipoMenu.includes('todos') || p.tipoMenu.includes('bebe')))
+      : null;
+    if(dbCenaAd){
+      return _completarPrimeroSegundo([{id:dbCenaAd.id,nombre:dbCenaAd.nombre}],
+        platosActivos, dbCenaAd, usadosBebe, usadosReciente, momento);
+    }
+
+    // Plato propio de bebé
+    const cands = _filtrarCandidatosBebe(platosActivos, momento, usadosBebe, usadosReciente);
+    const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
+    if(p){
+      usadosBebe.add(p.id);
+      return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
+        platosActivos, p, usadosBebe, usadosReciente, momento);
+    }
+
+    return platosAdultos || [];
+  }
+
+  // ── Helpers bebé ─────────────────────────────────────────────────
+
+  /** Filtra platos válidos para bebé (excluye segundos, excluye solo-adultos) */
+  function _filtrarCandidatosBebe(platos, momento, usadosBebe, usadosReciente) {
+    return platos.filter(p => {
+      if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
+      if(p.tipoPlato === 'segundo') return false;
+      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      const minSem = p.frecuenciaMinSemanas || 2;
+      if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Dado un array de platos iniciales del bebé:
+   * - Si el primer plato es 'unico' → devuelve tal cual
+   * - Si es 'primero' → busca un segundo
+   * - Si es 'segundo' → busca un primero (error de configuración, intenta corregir)
+   */
+  function _completarPrimeroSegundo(platosRef, platosActivos, platoObjeto, usadosBebe, usadosReciente, momento) {
+    if(!platoObjeto) return platosRef;
+    if(platoObjeto.tipoPlato === 'unico') return platosRef;
+    if(platoObjeto.tipoPlato === 'segundo'){
+      // Caso raro: solo tenemos un segundo, buscamos un primero
+      const primero = _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento);
+      if(primero){ usadosBebe.add(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...platosRef]; }
+      return platosRef;
+    }
+    // tipoPlato === 'primero': busca segundo
+    const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
+    if(segundo){ usadosBebe.add(segundo.id); return [...platosRef, {id:segundo.id,nombre:segundo.nombre}]; }
+    return platosRef;
+  }
+
+  /**
+   * Dado array de platos de adultos compatibles con bebé,
+   * asegura que el bebé tenga primero+segundo si el primero no es único.
+   */
+  function _asegurarPrimeroSegundo(compatAdultos, platosActivos, usadosBebe, usadosReciente, momento) {
+    if(compatAdultos.length >= 2) return compatAdultos;  // ya tiene dos
+    const primerRef = compatAdultos[0];
+    if(!primerRef) return [];
+    const primerDB = platosActivos.find(p => p.id === primerRef.id);
+    if(!primerDB || primerDB.tipoPlato === 'unico') return compatAdultos;
+    // Necesita segundo
+    const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
+    if(segundo){ usadosBebe.add(segundo.id); return [...compatAdultos, {id:segundo.id,nombre:segundo.nombre}]; }
+    return compatAdultos;
+  }
+
+  function _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento) {
+    const cands = platosActivos.filter(p => {
+      if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
+      if(p.tipoPlato !== 'primero') return false;
+      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      return true;
+    });
+    if(!cands.length) return null;
+    return cands[Math.floor(Math.random() * cands.length)];
+  }
+
+  function _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento) {
+    const cands = platosActivos.filter(p => {
+      if(p.tipoPlato !== 'segundo') return false;
+      if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
+      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      return true;
+    });
+    if(!cands.length) return null;
+    return cands[Math.floor(Math.random() * cands.length)];
+  }
+
   function _elegirDeSobras(sobrasBebe, platosActivos) {
     const disponibles = Object.keys(sobrasBebe).filter(id => sobrasBebe[id] > 0);
     if(!disponibles.length) return null;
