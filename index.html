@@ -99,6 +99,10 @@
         <section class="dashboard-section">
           <h2 class="section-title">Accesos rápidos</h2>
           <div class="quick-actions">
+            <button class="quick-action-btn" onclick="App.navigate('articulos')">
+              <span class="qa-icon">🛒</span>
+              <span class="qa-label">Artículos</span>
+            </button>
             <button class="quick-action-btn" onclick="App.navigate('inventario')">
               <span class="qa-icon">🥕</span>
               <span class="qa-label">Despensa</span>
@@ -139,6 +143,10 @@
       <button class="nav-item active" data-view="dashboard" onclick="App.navigate('dashboard')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         <span>Inicio</span>
+      </button>
+      <button class="nav-item" data-view="articulos" onclick="App.navigate('articulos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span>Artículos</span>
       </button>
       <button class="nav-item" data-view="inventario" onclick="App.navigate('inventario')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v4H3z"/><path d="M3 7v14h18V7"/><path d="M9 11h6"/></svg>
@@ -186,6 +194,7 @@
   <script src="js/auth.js"></script>
   <script src="js/drive.js"></script>
   <script src="js/sync.js"></script>
+  <script src="js/modules/articulos.js"></script>
   <script src="js/modules/inventario.js"></script>
   <script src="js/modules/platos.js"></script>
   <script src="js/modules/menu.js"></script>
