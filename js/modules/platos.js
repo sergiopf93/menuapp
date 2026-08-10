@@ -217,7 +217,7 @@ const Platos = (() => {
           <span class="badge badge-gray">${tipoMenuLabel}</span>
           <span class="badge badge-gray">${tipoComidaLabel}</span>
           ${plato.frecuenciaMinSemanas?`<span class="badge badge-gray">↻ cada ${plato.frecuenciaMinSemanas}sem</span>`:''}
-        </div>
+          ${plato.permiteRepeticion?`<span class="badge badge-green">↻ repite</span>`:''}        </div>
 
         ${(plato.etiquetas||[]).length>0?`
           <div class="pl-card-etiquetas">
@@ -349,6 +349,15 @@ const Platos = (() => {
               ${{comida:'🍽 Comida',cena:'🌙 Cena',ambos:'🍽🌙 Ambos'}[t]}
             </button>`).join('')}
         </div>
+      </div>
+
+      <!-- Repetición en semana -->
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="pl-f-repetir" ${plato?.permiteRepeticion?'checked':''}/>
+          <span class="form-label" style="margin:0">Puede repetirse en la misma semana</span>
+        </label>
+        <p class="form-hint">Actívalo para guarniciones y verduras habituales (ensalada, brócoli, judías verdes...).</p>
       </div>
 
       <!-- Frecuencia -->
@@ -599,6 +608,7 @@ const Platos = (() => {
     const tipoComida = [document.querySelector('.pl-chip-tipocomida.active')?.dataset.val || 'ambos'];
 
     const frecuencia = parseInt(document.getElementById('pl-f-freq')?.value)||2;
+    const repetir    = document.getElementById('pl-f-repetir')?.checked || false;
     const notifCb    = document.getElementById('pl-f-notif-cb')?.checked;
     const notifTexto = document.getElementById('pl-f-notif-texto')?.value.trim()||null;
     const notifHoras = parseInt(document.getElementById('pl-f-notif-horas')?.value)||16;
@@ -627,6 +637,7 @@ const Platos = (() => {
     const datos = {
       nombre, tipoMenu, tipoPlato, tipoComida,
       frecuenciaMinSemanas: frecuencia,
+      permiteRepeticion: repetir,
       notificacionPrevia: notifCb ? notifTexto : null,
       horasNotificacionPrevia: notifCb ? notifHoras : null,
       etiquetas, ingredientes, activo,
