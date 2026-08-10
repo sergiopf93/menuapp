@@ -217,7 +217,8 @@ const Platos = (() => {
           <span class="badge badge-gray">${tipoMenuLabel}</span>
           <span class="badge badge-gray">${tipoComidaLabel}</span>
           ${plato.frecuenciaMinSemanas?`<span class="badge badge-gray">↻ cada ${plato.frecuenciaMinSemanas}sem</span>`:''}
-          ${plato.permiteRepeticion?`<span class="badge badge-green">↻ repite</span>`:''}        </div>
+          ${plato.permiteRepeticion?`<span class="badge badge-green">↻ repite</span>`:''}
+          ${plato.diasSobras?`<span class="badge badge-blue">🍲 ${plato.diasSobras}d sobras</span>`:''}        </div>
 
         ${(plato.etiquetas||[]).length>0?`
           <div class="pl-card-etiquetas">
@@ -366,6 +367,21 @@ const Platos = (() => {
         <p class="form-hint">Actívalo para guarniciones y verduras habituales (ensalada, brócoli, judías verdes...).</p>
       </div>
 
+      <!-- Sobras para bebé -->
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="pl-f-sobras-cb" ${plato?.diasSobras?'checked':''}/>
+          <span class="form-label" style="margin:0">Se cocinan raciones de más (sobras para bebé)</span>
+        </label>
+        <p class="form-hint">Cocido, puchero, potajes... que dan para varios días del bebé.</p>
+      </div>
+      <div class="form-group" id="pl-f-sobras-block" style="${plato?.diasSobras?'':'display:none'}">
+        <label class="form-label" for="pl-f-sobras-dias">Días extra que cubre para el bebé</label>
+        <input class="form-control" id="pl-f-sobras-dias" type="number" min="1" max="6"
+               value="${plato?.diasSobras||2}"/>
+        <p class="form-hint">Ej: 2 = además del día que se cocina, el bebé come ese plato 2 días más.</p>
+      </div>
+
       <!-- Frecuencia -->
       <div class="form-group">
         <label class="form-label" for="pl-f-freq">Semanas mínimas entre repeticiones</label>
@@ -478,6 +494,12 @@ const Platos = (() => {
     const notifBlock = document.getElementById('pl-f-notif-block');
     notifCb?.addEventListener('change', () => {
       if (notifBlock) notifBlock.style.display = notifCb.checked ? '' : 'none';
+    });
+
+    const sobrasCb = document.getElementById('pl-f-sobras-cb');
+    const sobrasBlock = document.getElementById('pl-f-sobras-block');
+    sobrasCb?.addEventListener('change', () => {
+      if (sobrasBlock) sobrasBlock.style.display = sobrasCb.checked ? '' : 'none';
     });
 
     // Chips tipo menú (multi-select, excepto "todos" que es exclusivo)
@@ -615,6 +637,8 @@ const Platos = (() => {
 
     const frecuencia = parseInt(document.getElementById('pl-f-freq')?.value)||2;
     const repetir    = document.getElementById('pl-f-repetir')?.checked || false;
+    const sobrasCb   = document.getElementById('pl-f-sobras-cb')?.checked || false;
+    const diasSobras = sobrasCb ? (parseInt(document.getElementById('pl-f-sobras-dias')?.value)||2) : 0;
     const notifCb    = document.getElementById('pl-f-notif-cb')?.checked;
     const notifTexto = document.getElementById('pl-f-notif-texto')?.value.trim()||null;
     const notifHoras = parseInt(document.getElementById('pl-f-notif-horas')?.value)||16;
@@ -644,6 +668,7 @@ const Platos = (() => {
       nombre, tipoMenu, tipoPlato, tipoComida,
       frecuenciaMinSemanas: frecuencia,
       permiteRepeticion: repetir,
+      diasSobras: diasSobras || 0,
       notificacionPrevia: notifCb ? notifTexto : null,
       horasNotificacionPrevia: notifCb ? notifHoras : null,
       etiquetas, ingredientes, activo,
