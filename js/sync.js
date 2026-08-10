@@ -16,7 +16,7 @@ const Sync = (() => {
   let _isActive  = true;
 
   /** Ficheros que se monitorizan para cambios externos */
-  const WATCHED_FILES = ['inventario.json', 'platos.json', 'config.json'];
+  const WATCHED_FILES = ['inventario.json', 'platos.json', 'config.json', 'catalogo.json'];
 
   /** Callbacks registrados por módulo para cuando cambia un fichero */
   const _listeners = {};
@@ -65,12 +65,33 @@ const Sync = (() => {
 
   /**
    * Fuerza una sincronización inmediata de todos los ficheros monitorizados.
+   * Descarga siempre, independientemente de si ha cambiado o no.
    * @returns {Promise<void>}
    */
   async function syncNow() {
     if (!Auth.isAuthenticated()) return;
-    await _poll();
-    UI.showToast('Datos sincronizados', 'success');
+
+    UI.showToast('Sincronizando con Drive...', 'info', 2000);
+
+    for (const fileName of WATCHED_FILES) {
+      try {
+        // Fuerza la descarga aunque el ETag no haya cambiado
+        const data = await Drive.readJson(fileName);
+        if (data !== null) {
+          await Storage.set(`cache_${fileName}`, data);
+          // Dispara los listeners registrados
+          if (_listeners[fileName]) {
+            _listeners[fileName].forEach(cb => {
+              try { cb(data); } catch(e) { console.error('[Sync] Error en listener:', e); }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`[Sync] Error sincronizando ${fileName}:`, err.message);
+      }
+    }
+
+    UI.showToast('✓ Datos actualizados', 'success');
   }
 
   // ── Privados ─────────────────────────────────────────────────────

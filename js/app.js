@@ -135,33 +135,43 @@ const App = (() => {
   /**
    * Carga inventario, platos y configuración desde Drive (o caché local).
    */
+  /**
+   * Carga todos los ficheros de datos desde Drive.
+   * Siempre va a Drive en el arranque para garantizar datos frescos.
+   * La caché local (IndexedDB) se usa solo como fallback offline.
+   */
   async function _loadInitialData() {
     UI.setLoadingMessage('Cargando catálogo de artículos...');
-    const cachedCatalogo = await Storage.get('cache_catalogo.json');
-    state.catalogo = cachedCatalogo || await Drive.readJson('catalogo.json') || [];
+    state.catalogo   = await Drive.readJson('catalogo.json')
+                       ?? await Storage.get('cache_catalogo.json')
+                       ?? [];
 
     UI.setLoadingMessage('Cargando inventario...');
-    const cachedInventario = await Storage.get('cache_inventario.json');
-    state.inventario = cachedInventario || await Drive.readJson('inventario.json') || [];
+    state.inventario = await Drive.readJson('inventario.json')
+                       ?? await Storage.get('cache_inventario.json')
+                       ?? [];
 
     UI.setLoadingMessage('Cargando catálogo de platos...');
-    const cachedPlatos = await Storage.get('cache_platos.json');
-    state.platos = cachedPlatos || await Drive.readJson('platos.json') || [];
+    state.platos     = await Drive.readJson('platos.json')
+                       ?? await Storage.get('cache_platos.json')
+                       ?? [];
 
     UI.setLoadingMessage('Cargando configuración...');
-    const cachedConfig = await Storage.get('cache_config.json');
-    state.config = cachedConfig || await Drive.readJson('config.json') || _defaultConfig();
+    state.config     = await Drive.readJson('config.json')
+                       ?? await Storage.get('cache_config.json')
+                       ?? _defaultConfig();
 
-    // Si la config no existía en Drive, la crea con los valores por defecto
-    if (!cachedConfig && !(await Drive.readJson('config.json'))) {
+    // Si config no existía en Drive, la crea
+    if (!state.config.version) {
+      state.config = _defaultConfig();
       await Drive.writeJson('config.json', state.config);
     }
 
-    // Actualiza las cachés locales
+    // Actualiza la caché local con los datos frescos de Drive
+    await Storage.set('cache_catalogo.json',   state.catalogo);
     await Storage.set('cache_inventario.json', state.inventario);
     await Storage.set('cache_platos.json',     state.platos);
     await Storage.set('cache_config.json',     state.config);
-    await Storage.set('cache_catalogo.json',   state.catalogo);
   }
 
   // ── Navegación ───────────────────────────────────────────────────
@@ -313,10 +323,46 @@ const App = (() => {
    * cuando otro usuario modifica los datos en Drive.
    */
   function _registerSyncListeners() {
-    Sync.onFileChange('inventario.json', (data) => { state.inventario = data; });
-    Sync.onFileChange('platos.json',     (data) => { state.platos     = data; });
-    Sync.onFileChange('config.json',     (data) => { state.config     = data; });
-    Sync.onFileChange('catalogo.json',   (data) => { state.catalogo   = data; });
+    Sync.onFileChange('inventario.json', (data) => {
+      state.inventario = data;
+      _reRenderActiveView();
+    });
+    Sync.onFileChange('platos.json', (data) => {
+      state.platos = data;
+      _reRenderActiveView();
+    });
+    Sync.onFileChange('config.json', (data) => {
+      state.config = data;
+      _reRenderActiveView();
+    });
+    Sync.onFileChange('catalogo.json', (data) => {
+      state.catalogo = data;
+      _reRenderActiveView();
+    });
+  }
+
+  /**
+   * Re-renderiza la vista activa si depende de los datos que acaban de cambiar.
+   * Evita recargar páginas que no están visibles.
+   */
+  function _reRenderActiveView() {
+    const activeView = document.querySelector('.view.active');
+    if (!activeView) return;
+    const viewId = activeView.id?.replace('view-', '');
+    if (!viewId) return;
+
+    // Vuelve a renderizar la vista activa para reflejar los nuevos datos
+    switch (viewId) {
+      case 'dashboard':  _renderDashboard();     break;
+      case 'inventario': Inventario.render();    break;
+      case 'articulos':  Articulos.render();     break;
+      case 'platos':     Platos.render();        break;
+      case 'compra':     Compra.render();        break;
+      case 'historial':  Historial.render();     break;
+      case 'config':     Configuracion.render(); break;
+      // 'menu' no se re-renderiza automáticamente para no interrumpir
+      // al usuario si está en medio del asistente de generación
+    }
   }
 
   // ── Notificaciones ───────────────────────────────────────────────
@@ -460,8 +506,13 @@ const App = (() => {
    * @param {'inventario'|'platos'|'config'} key
    * @param {*} value
    */
+  /**
+   * Actualiza una parte del estado y persiste en Drive y caché.
+   * @param {'inventario'|'platos'|'config'|'catalogo'} key
+   * @param {*} value
+   */
   async function setState(key, value) {
-    state[key] = value;
+    state[key] = value;                          // ← actualiza memoria primero
     const fileName = `${key}.json`;
     await Storage.set(`cache_${fileName}`, value);
     await Drive.writeJson(fileName, value);
