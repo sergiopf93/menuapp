@@ -191,9 +191,20 @@ const App = (() => {
   /**
    * Renderiza la pantalla de inicio con el resumen de la semana y las alertas.
    */
-  function _renderDashboard() {
+  async function _renderDashboard() {
     _renderAlerts();
     _renderDriveStatus();
+    // Carga y muestra el calendario de menú en el dashboard
+    const calHtml = await Menu.getCalendarioHTML().catch(()=>null);
+    const calContainer = document.getElementById('dashboard-menu-preview');
+    if (calContainer && calHtml) {
+      calContainer.innerHTML = `
+        <div class="menu-calendario-wrapper">${calHtml}</div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
+          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
+        </div>`;
+    }
   }
 
   /**
