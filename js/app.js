@@ -439,6 +439,17 @@ const App = (() => {
       ],
       tiposDiaEspecial: [
         {
+          id: 'dia_facil',
+          nombre: 'Día fácil',
+          afectaA: 'todos',
+          esDiaFacil: true,
+          facilMomentos: ['comida', 'cena'],
+          afectaComida: false,
+          afectaCena: false,
+          generaMayores: true,
+          generaBebe: true,
+        },
+        {
           id: 'fuera_todo',
           nombre: 'Fuera de casa (todo el día)',
           afectaA: 'todos',
