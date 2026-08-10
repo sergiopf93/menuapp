@@ -286,8 +286,9 @@ const Platos = (() => {
   function openForm(id=null) {
     const state = App.getState();
     const plato = id?(state.platos||[]).find(p=>p.id===id):null;
+    const catalogo = Articulos.getCatalogo(); // ← usa el catálogo, no el inventario
     const container = document.createElement('div');
-    container.innerHTML = _buildForm(plato, state.inventario||[]);
+    container.innerHTML = _buildForm(plato, catalogo);
     UI.showModal({
       title: plato?`Editar — ${plato.nombre}`:'Añadir plato',
       content: container,
@@ -296,7 +297,7 @@ const Platos = (() => {
         {label:plato?'Guardar cambios':'Añadir plato',type:'primary',onClick:()=>_submitForm(plato)},
       ],
     });
-    setTimeout(()=>_initFormEvents(state.inventario||[]),100);
+    setTimeout(()=>_initFormEvents(catalogo),100);
   }
 
   function _buildForm(plato, inventario) {
@@ -407,7 +408,7 @@ const Platos = (() => {
         <button type="button" class="btn btn-secondary btn-sm mt-2" id="pl-f-add-ing">
           + Añadir ingrediente
         </button>
-        <p class="form-hint">Opcional. Permite calcular la lista de la compra automáticamente.</p>
+        <p class="form-hint">Opcional. Usa el catálogo de artículos para calcular la lista de la compra automáticamente.</p>
       </div>
 
       <!-- Activo -->
@@ -420,18 +421,34 @@ const Platos = (() => {
     `;
   }
 
+  /**
+   * Construye una fila de ingrediente con buscador libre.
+   * El ingrediente tiene: nombre (texto libre), categoria, cantidad, unidad.
+   * Si el nombre coincide con un artículo del inventario, se vincula automáticamente
+   * al generar la lista de compra. Si no existe, se crea como artículo nuevo al comprar.
+   */
   function _buildIngredienteRow(ing, idx, inventario) {
-    const opts = (inventario||[]).map(art =>
-      `<option value="${art.id}" ${ing?.articuloId===art.id?'selected':''}>${UI.escapeHtml(art.nombre)}</option>`
-    ).join('');
+    // Nombre: si viene de versión antigua con articuloId, resolvemos el nombre
+    let nombreVal = ing?.nombre || '';
+    if (!nombreVal && ing?.articuloId && inventario) {
+      const art = inventario.find(a => a.id === ing.articuloId);
+      if (art) nombreVal = art.nombre;
+    }
+    const categoriaVal = ing?.categoria || '';
+
     return `
       <div class="pl-ing-row" data-idx="${idx}">
-        <select class="form-control pl-ing-select" style="flex:3" data-field="articuloId">
-          <option value="">— Selecciona artículo —</option>
-          ${opts}
-        </select>
+        <div style="flex:3;position:relative">
+          <input class="form-control pl-ing-nombre" type="text"
+                 placeholder="Nombre ingrediente" value="${UI.escapeHtml(nombreVal)}"
+                 data-field="nombre" autocomplete="off"/>
+          <div class="pl-ing-suggestions hidden" id="pl-ing-sugg-${idx}"></div>
+        </div>
+        <input class="form-control pl-ing-cat" type="text"
+               style="flex:2;min-width:80px" placeholder="Categoría"
+               value="${UI.escapeHtml(categoriaVal)}" data-field="categoria"/>
         <input class="form-control pl-ing-qty" type="number" min="0" step="0.1"
-               style="flex:1;min-width:60px" placeholder="Cant." value="${ing?.cantidad||''}"
+               style="flex:1;min-width:56px" placeholder="Cant." value="${ing?.cantidad||''}"
                data-field="cantidad"/>
         <select class="form-control pl-ing-unit" style="flex:1;min-width:60px" data-field="unidad">
           ${['UN','KG','GR','L','ML','PAQ'].map(u=>`<option ${ing?.unidad===u?'selected':''}>${u}</option>`).join('')}
@@ -493,18 +510,62 @@ const Platos = (() => {
     document.getElementById('pl-f-add-ing')?.addEventListener('click', () => {
       const container = document.getElementById('pl-f-ingredientes');
       const idx = container.querySelectorAll('.pl-ing-row').length;
-      const row = document.createElement('div');
-      row.innerHTML = _buildIngredienteRow(null, idx, inventario);
-      container.appendChild(row.firstElementChild);
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = _buildIngredienteRow(null, idx, inventario);
+      container.appendChild(wrapper.firstElementChild);
       _bindIngRemove();
+      _bindIngAutocomplete(inventario);
+      // Foco en el nuevo campo
+      container.querySelector(`.pl-ing-row:last-child .pl-ing-nombre`)?.focus();
     });
 
     _bindIngRemove();
+    _bindIngAutocomplete(inventario);
   }
 
   function _bindIngRemove() {
     document.querySelectorAll('.pl-ing-rm').forEach(btn => {
       btn.onclick = () => btn.closest('.pl-ing-row').remove();
+    });
+  }
+
+  /**
+   * Vincula el autocomplete de nombre de ingrediente a todos los campos actuales.
+   * Sugiere nombres del inventario pero permite escribir cualquier cosa.
+   * Al seleccionar un artículo del inventario, rellena también la categoría.
+   */
+  function _bindIngAutocomplete(inventario) {
+    document.querySelectorAll('.pl-ing-nombre').forEach(input => {
+      const row  = input.closest('.pl-ing-row');
+      const idx  = row?.dataset.idx;
+      const sugg = document.getElementById(`pl-ing-sugg-${idx}`);
+      if (!sugg) return;
+
+      input.addEventListener('input', () => {
+        const val = input.value.toLowerCase().trim();
+        if (!val || !inventario?.length) { sugg.classList.add('hidden'); return; }
+        const matches = inventario.filter(a => a.nombre.toLowerCase().includes(val)).slice(0, 6);
+        if (!matches.length) { sugg.classList.add('hidden'); return; }
+        sugg.innerHTML = matches.map(a =>
+          `<div class="categoria-option" data-nombre="${UI.escapeHtml(a.nombre)}" data-cat="${UI.escapeHtml(a.categoria||'')}">
+            ${UI.escapeHtml(a.nombre)} <span style="color:var(--color-text-muted);font-size:11px">${UI.escapeHtml(a.categoria||'')}</span>
+           </div>`
+        ).join('');
+        sugg.classList.remove('hidden');
+        sugg.querySelectorAll('.categoria-option').forEach(opt => {
+          opt.addEventListener('click', () => {
+            input.value = opt.dataset.nombre;
+            // Rellena categoría automáticamente
+            const catInput = row?.querySelector('.pl-ing-cat');
+            if (catInput && opt.dataset.cat) catInput.value = opt.dataset.cat;
+            sugg.classList.add('hidden');
+          });
+        });
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !sugg.contains(e.target)) sugg.classList.add('hidden');
+      });
     });
   }
 
@@ -547,14 +608,15 @@ const Platos = (() => {
     const etiquetas = [...document.querySelectorAll('#pl-f-etiquetas-selected [data-e]')]
       .map(el => el.dataset.e).filter(Boolean);
 
-    // Ingredientes
+    // Ingredientes — nombre libre + categoría + cantidad + unidad
     const ingredientes = [];
     document.querySelectorAll('#pl-f-ingredientes .pl-ing-row').forEach(row => {
-      const articuloId = row.querySelector('[data-field="articuloId"]')?.value;
-      const cantidad   = parseFloat(row.querySelector('[data-field="cantidad"]')?.value);
-      const unidad     = row.querySelector('[data-field="unidad"]')?.value;
-      if (articuloId && !isNaN(cantidad)) {
-        ingredientes.push({ articuloId, cantidad, unidad });
+      const nombre   = row.querySelector('[data-field="nombre"]')?.value.trim();
+      const categoria= row.querySelector('[data-field="categoria"]')?.value.trim()||'Otros';
+      const cantidad = parseFloat(row.querySelector('[data-field="cantidad"]')?.value);
+      const unidad   = row.querySelector('[data-field="unidad"]')?.value;
+      if (nombre) {
+        ingredientes.push({ nombre, categoria, cantidad: isNaN(cantidad)?1:cantidad, unidad });
       }
     });
 
