@@ -208,15 +208,32 @@ const App = (() => {
     _renderAlerts();
     _renderDriveStatus();
     _renderAccesos();
-    // Carga y muestra el calendario de menú en el dashboard
-    const calHtml = await Menu.getCalendarioHTML().catch(()=>null);
+
+    // Sección de menú en el dashboard
     const calContainer = document.getElementById('dashboard-menu-preview');
-    if (calContainer && calHtml) {
+    if (!calContainer) return;
+
+    try {
+      const calHtml = await Menu.getCalendarioHTML();
+      if (calHtml) {
+        calContainer.innerHTML = `
+          <div class="menu-calendario-wrapper">${calHtml}</div>
+          <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
+            <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
+            <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
+          </div>`;
+      } else {
+        calContainer.innerHTML = `
+          <div style="text-align:center;padding:var(--space-6) 0">
+            <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú para esta semana.</p>
+            <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>
+          </div>`;
+      }
+    } catch {
       calContainer.innerHTML = `
-        <div class="menu-calendario-wrapper">${calHtml}</div>
-        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
-          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
+        <div style="text-align:center;padding:var(--space-4) 0">
+          <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">No hay menú generado.</p>
+          <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>
         </div>`;
     }
   }
@@ -235,10 +252,12 @@ const App = (() => {
   function _renderAccesos() {
     const container = document.getElementById('dash-quick-actions');
     if (!container) return;
-    const guardados = Storage.getSync('accesos_rapidos');
-    const accesos = guardados
-      ? JSON.parse(guardados)
-      : ['menu','compra','inventario','platos'];
+
+    let accesos = ['menu','compra','inventario','platos'];
+    try {
+      const guardados = Storage.getSync('accesos_rapidos');
+      if (guardados) accesos = JSON.parse(guardados);
+    } catch {}
 
     container.innerHTML = accesos.map(id => {
       const op = ACCESOS_OPCIONES.find(o=>o.id===id);
@@ -249,6 +268,7 @@ const App = (() => {
       </button>`;
     }).join('');
 
+    // Re-bind del botón editar (se destruye con innerHTML)
     document.getElementById('dash-edit-accesos')?.addEventListener('click', _editarAccesos);
   }
 
