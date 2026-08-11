@@ -59,6 +59,9 @@ const UI = (() => {
    * @returns {{ close: Function }} - Objeto con método close()
    */
   function showModal({ title, content, buttons = [] }) {
+    // Evita apilar modales: cierra cualquier overlay existente primero
+    document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
 
@@ -104,7 +107,16 @@ const UI = (() => {
         const btn = document.createElement('button');
         btn.className = `btn btn-${type}`;
         btn.textContent = label;
-        btn.onclick = () => { if (onClick) onClick(); close(); };
+        btn.onclick = () => {
+          if (onClick) {
+            // Si onClick existe, NO cerramos automáticamente
+            // El onClick es responsable de llamar modalRef.close() si procede
+            onClick();
+          } else {
+            // Sin onClick = botón Cancelar → cierra directamente
+            close();
+          }
+        };
         footer.appendChild(btn);
       });
     }
@@ -122,10 +134,15 @@ const UI = (() => {
     });
 
     // Foco en el primer elemento interactivo
-    const firstFocusable = modal.querySelector('button, input, select, textarea');
-    if (firstFocusable) firstFocusable.focus();
+    setTimeout(() => {
+      const firstFocusable = modal.querySelector('input, select, textarea, button:not(.modal-close)');
+      if (firstFocusable) firstFocusable.focus();
+    }, 50);
 
+    let _closed = false;
     function close() {
+      if (_closed) return;
+      _closed = true;
       overlay.remove();
     }
 
@@ -145,8 +162,7 @@ const UI = (() => {
       function done(value) {
         if (_resolved) return;
         _resolved = true;
-        // Cierra el overlay manualmente
-        document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+        overlay.remove();
         resolve(value);
       }
 
