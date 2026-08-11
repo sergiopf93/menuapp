@@ -99,33 +99,13 @@
           </div>
         </section>
 
-        <section class="dashboard-section">
-          <h2 class="section-title">Accesos rápidos</h2>
-          <div class="quick-actions">
-            <button class="quick-action-btn" onclick="App.navigate('articulos')">
-              <span class="qa-icon">🛒</span>
-              <span class="qa-label">Artículos</span>
-            </button>
-            <button class="quick-action-btn" onclick="App.navigate('inventario')">
-              <span class="qa-icon">🥕</span>
-              <span class="qa-label">Despensa</span>
-            </button>
-            <button class="quick-action-btn" onclick="App.navigate('menu')">
-              <span class="qa-icon">📅</span>
-              <span class="qa-label">Menú</span>
-            </button>
-            <button class="quick-action-btn" onclick="App.navigate('compra')">
-              <span class="qa-icon">🛒</span>
-              <span class="qa-label">Compra</span>
-            </button>
-            <button class="quick-action-btn" onclick="App.navigate('platos')">
-              <span class="qa-icon">🍽️</span>
-              <span class="qa-label">Platos</span>
-            </button>
-            <button class="quick-action-btn" onclick="App.navigate('historial')">
-              <span class="qa-icon">📋</span>
-              <span class="qa-label">Historial</span>
-            </button>
+        <section class="dashboard-section" id="dash-accesos-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+            <h2 class="section-title" style="margin:0">Accesos rápidos</h2>
+            <button class="btn-text" id="dash-edit-accesos" style="font-size:var(--font-size-xs)">✏️ Editar</button>
+          </div>
+          <div class="quick-actions" id="dash-quick-actions">
+            <!-- Renderizado dinámicamente por App.renderAccesos() -->
           </div>
         </section>
 
@@ -147,17 +127,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         <span>Inicio</span>
       </button>
-      <button class="nav-item" data-view="articulos" onclick="App.navigate('articulos')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-        <span>Artículos</span>
-      </button>
-      <button class="nav-item" data-view="inventario" onclick="App.navigate('inventario')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v4H3z"/><path d="M3 7v14h18V7"/><path d="M9 11h6"/></svg>
-        <span>Despensa</span>
-      </button>
-      <button class="nav-item" data-view="platos" onclick="App.navigate('platos')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-        <span>Platos</span>
+      <button class="nav-item" data-view="dashboard" onclick="App.navigate('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Inicio</span>
       </button>
       <button class="nav-item" data-view="menu" onclick="App.navigate('menu')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
@@ -167,15 +139,43 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         <span>Compra</span>
       </button>
-      <button class="nav-item" data-view="historial" onclick="App.navigate('historial')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-        <span>Historial</span>
+      <button class="nav-item" data-view="inventario" onclick="App.navigate('inventario')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v4H3z"/><path d="M3 7v14h18V7"/><path d="M9 11h6"/></svg>
+        <span>Despensa</span>
       </button>
-      <button class="nav-item" data-view="config" onclick="App.navigate('config')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Config</span>
+      <button class="nav-item" data-view="platos" onclick="App.navigate('platos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+        <span>Platos</span>
+      </button>
+      <button class="nav-item nav-item--more" id="nav-more-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        <span>Más</span>
       </button>
     </nav>
+
+    <!-- Menú "Más" -->
+    <div id="nav-more-menu" class="nav-more-menu hidden">
+      <button class="nav-more-item" onclick="App.navigate('articulos');_closeMore()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        Artículos
+      </button>
+      <button class="nav-more-item" onclick="App.navigate('historial');_closeMore()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Historial
+      </button>
+      <button class="nav-more-item" onclick="App.navigate('config');_closeMore()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Configuración
+      </button>
+    </div>
+    <script>
+      document.getElementById('nav-more-btn')?.addEventListener('click', e => {
+        e.stopPropagation();
+        document.getElementById('nav-more-menu')?.classList.toggle('hidden');
+      });
+      function _closeMore() { document.getElementById('nav-more-menu')?.classList.add('hidden'); }
+      document.addEventListener('click', () => _closeMore());
+    </script>
 
   </div><!-- /screen-app -->
 
