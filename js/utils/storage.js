@@ -101,6 +101,16 @@ const Storage = (() => {
     });
   }
 
-  return { set, get, remove, clear };
+  /** Guarda en localStorage (síncrono, para preferencias locales) */
+  function setSync(key, value) {
+    try { localStorage.setItem(`menuapp_${key}`, value); } catch{}
+  }
+
+  /** Lee de localStorage (síncrono) */
+  function getSync(key) {
+    try { return localStorage.getItem(`menuapp_${key}`); } catch { return null; }
+  }
+
+  return { set, get, remove, clear, setSync, getSync };
 
 })();
