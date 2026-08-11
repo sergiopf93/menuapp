@@ -661,7 +661,6 @@ const Platos = (() => {
     const link = document.getElementById('pl-link-input')?.value.trim();
     if (!link) { UI.showToast('Introduce un link válido','error'); return; }
 
-    // Comprueba que hay API key de Gemini configurada
     const apiKey = Storage.getSync('gemini_api_key');
     if (!apiKey) {
       UI.showToast('Configura tu API key de Gemini en Config → Cuenta','error', 5000);
@@ -670,130 +669,114 @@ const Platos = (() => {
 
     const statusEl = document.getElementById('pl-link-status');
     const btn = document.getElementById('pl-link-analizar');
-    if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con Gemini...'; statusEl.classList.remove('hidden'); }
-    if(btn) btn.disabled = true;
+    const setStatus = (msg) => { if(statusEl){ statusEl.textContent=msg; statusEl.classList.remove('hidden'); } };
 
-    // Detecta el tipo de fuente para usar la estrategia correcta
+    if(btn) btn.disabled = true;
+    setStatus('🤖 Analizando receta...');
+
     const esYoutube   = /youtube\.com|youtu\.be/i.test(link);
     const esInstagram = /instagram\.com/i.test(link);
 
-    const fuenteDesc = esYoutube
-      ? 'Analiza este vídeo de YouTube y extrae la receta que aparece'
-      : esInstagram
-        ? 'Busca esta publicación de Instagram y extrae la receta'
-        : 'Visita esta URL y extrae los datos de la receta';
+    // Helper: llama a Gemini con un prompt dado
+    async function callGemini(prompt, useSearch = true) {
+      const contents = esYoutube
+        ? [{ parts: [{ fileData: { mimeType:'video/mp4', fileUri: link } }, { text: prompt }] }]
+        : [{ parts: [{ text: prompt }] }];
 
-    const PROMPT = `${fuenteDesc}: ${link}
+      const body = {
+        contents,
+        generationConfig: { temperature: 0.1, maxOutputTokens: 800 },
+      };
+      if (useSearch && !esYoutube) body.tools = [{ googleSearch: {} }];
 
-Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
-- nombre: string con el nombre del plato
-- raciones: número entero de raciones (ej: 4)
-- tipoPlato: una de estas opciones exactas: unico / primero / segundo
-- tipoComida: array con una opción: comida / cena / ambos
-- tipoMenu: array con una opción: mayores / bebe / todos
-- preparacionFacil: true si tarda menos de 30 minutos, false si no
-- notificacionPrevia: null, o string corto si requiere preparación previa
-- etiquetas: array con máximo 2 valores de esta lista: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
-- ingredientes: array de los 8 ingredientes principales, cada uno con: nombre (string), cantidad (número), unidad (UN/KG/GR/L/ML/PAQ), categoria (Frutas y verduras / Carnicería / Pescadería / Lácteos / Conservas / Legumbres / Especias / Aceites y vinagres / Salsas y condimentos / Pan y bollería / Repostería y panadería / Congelados / Bebidas)`;
-    // Gemini puede procesar vídeos de YouTube nativamente con fileData
-    // Para web e Instagram usa googleSearch grounding
-    let contents, tools;
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }
+      );
+      if (!r.ok) {
+        const e = await r.json().catch(()=>({}));
+        throw new Error(e?.error?.message || `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      return parts.map(p => p.text||'').join('').trim();
+    }
 
-    if (esYoutube) {
-      // YouTube: Gemini puede analizar el vídeo directamente
-      contents = [{
-        parts: [
-          { fileData: { mimeType: 'video/mp4', fileUri: link } },
-          { text: PROMPT }
-        ]
-      }];
-      tools = [];
-    } else {
-      // Web / Instagram: usa Google Search para acceder al contenido
-      contents = [{ parts: [{ text: PROMPT }] }];
-      tools = [{ googleSearch: {} }];
+    // Extrae el primer JSON válido de un texto
+    function extraerJSON(text) {
+      const start = text.indexOf('{');
+      if (start === -1) return null;
+      let str = text.slice(start);
+      let depth=0, end=-1, inStr=false, esc=false;
+      for (let i=0; i<str.length; i++) {
+        const c = str[i];
+        if (esc)       { esc=false; continue; }
+        if (c==='\\')  { esc=true; continue; }
+        if (c==='"')   { inStr=!inStr; continue; }
+        if (inStr)     continue;
+        if (c==='{')   depth++;
+        else if (c==='}') { depth--; if(depth===0){ end=i; break; } }
+      }
+      if (end < 0) return null;
+      try { return JSON.parse(str.slice(0, end+1)); } catch { return null; }
     }
 
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            ...(tools.length ? { tools } : {}),
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 2000,
-            },
-          }),
-        }
-      );
+      // ── Llamada 1: metadatos del plato ──────────────────────────
+      setStatus('🤖 Paso 1/2 — Analizando el plato...');
+      const fuenteDesc = esYoutube ? 'Analiza este vídeo de YouTube'
+        : esInstagram ? 'Analiza esta publicación de Instagram'
+        : 'Analiza esta receta web';
 
-      if (!response.ok) {
-        const err = await response.json().catch(()=>({}));
-        const msg = err?.error?.message || `HTTP ${response.status}`;
-        throw new Error(msg);
+      const prompt1 = `${fuenteDesc}: ${link}
+
+Devuelve SOLO un JSON con estos campos (sin markdown):
+{"nombre":"string","raciones":4,"tipoPlato":"unico","tipoComida":["comida"],"tipoMenu":["todos"],"preparacionFacil":false,"notificacionPrevia":null,"etiquetas":["verdura"]}
+
+tipoPlato: unico/primero/segundo
+tipoComida: comida/cena/ambos
+tipoMenu: mayores/bebe/todos
+etiquetas (max 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada`;
+
+      const text1 = await callGemini(prompt1);
+      const meta  = extraerJSON(text1);
+      if (!meta?.nombre) throw new Error('No se pudo identificar el plato. Prueba con otra URL.');
+
+      // ── Llamada 2: ingredientes ──────────────────────────────────
+      setStatus('🤖 Paso 2/2 — Extrayendo ingredientes...');
+
+      const prompt2 = `${fuenteDesc}: ${link}
+
+Lista los ingredientes de la receta "${meta.nombre}".
+Devuelve SOLO un JSON array (sin markdown, sin texto extra):
+[{"nombre":"string","cantidad":1,"unidad":"UN","categoria":"Frutas y verduras"}]
+
+unidad: UN, KG, GR, L, ML, PAQ
+categoria: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Repostería y panadería, Congelados, Bebidas
+
+Máximo 12 ingredientes principales.`;
+
+      const text2  = await callGemini(prompt2);
+      // Extrae array de ingredientes
+      const startArr = text2.indexOf('[');
+      const endArr   = text2.lastIndexOf(']');
+      let ingredientes = [];
+      if (startArr !== -1 && endArr > startArr) {
+        try { ingredientes = JSON.parse(text2.slice(startArr, endArr+1)); } catch {}
       }
 
-      const data = await response.json();
-      // Con googleSearch activado, el texto puede venir en múltiples partes
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const text = parts.map(p => p.text || '').join('').trim();
-      console.log('[Gemini RAW]', JSON.stringify(text?.slice(0, 500)));  // log para diagnóstico
-      if (!text) throw new Error('Gemini no devolvió contenido. Verifica que la URL sea accesible.');
-
-      // Extrae el bloque JSON del texto de respuesta
-      let jsonStr = text.trim();
-      jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim();
-
-      // Busca el primer { del JSON real
-      const firstBrace = jsonStr.indexOf('{');
-      if (firstBrace > 0) jsonStr = jsonStr.slice(firstBrace);
-
-      // Encuentra el cierre balanceado
-      let depth = 0, lastClose = -1;
-      let inString = false, escaped = false;
-      for (let i = 0; i < jsonStr.length; i++) {
-        const c = jsonStr[i];
-        if (escaped) { escaped = false; continue; }
-        if (c === '\\' && inString) { escaped = true; continue; }
-        if (c === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) { lastClose = i; break; } }
-      }
-      if (lastClose > 0) jsonStr = jsonStr.slice(0, lastClose + 1);
-
-      // Intenta parsear directamente
-      let receta;
-      try {
-        receta = JSON.parse(jsonStr);
-      } catch {
-        // Intento de reparación: cierra strings y objetos abiertos
-        const repaired = _repairJSON(jsonStr);
-        try {
-          receta = JSON.parse(repaired);
-        } catch(e2) {
-          throw new Error(`No se pudo parsear la respuesta de Gemini. Intenta con otra URL o rellena los datos manualmente.`);
-        }
-      }
+      // Combina resultado
+      const receta = { ...meta, ingredientes: ingredientes || [] };
 
       _rellenarFormConReceta(receta, link, formContainer);
-
-      if(statusEl){ statusEl.textContent='✓ Receta cargada correctamente'; statusEl.className='status-ok'; }
+      setStatus('✓ Receta cargada correctamente');
+      statusEl?.classList.add('status-ok');
       document.getElementById('pl-link-block')?.classList.add('hidden');
-
-      const linkGuardado = document.getElementById('pl-link-guardado-block');
-      const linkInput    = document.getElementById('pl-f-link');
-      if(linkGuardado) linkGuardado.style.display='';
-      if(linkInput)    linkInput.value = link;
 
     } catch(err) {
       console.error('[Platos] Error Gemini:', err);
-      const msg = err.message?.includes('API_KEY') ? 'API key inválida. Revísala en Config → Cuenta.'
-                : err.message?.includes('quota')   ? 'Límite de uso alcanzado. Inténtalo más tarde.'
+      const msg = err.message?.includes('API_KEY') ? 'API key inválida.'
+                : err.message?.includes('quota')   ? 'Límite de uso alcanzado.'
                 : err.message;
       if(statusEl){ statusEl.textContent=`❌ ${msg}`; statusEl.className='status-error'; }
       UI.showToast('Error al analizar la receta','error');
@@ -802,49 +785,63 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
     }
   }
 
+
   function _rellenarFormConReceta(receta, link, formContainer) {
+    const q  = id => formContainer.querySelector(`#${id}`);
+    const qs = sel => formContainer.querySelector(sel);
+    const qsa= sel => formContainer.querySelectorAll(sel);
+
     // Nombre
-    const nombreEl = document.getElementById('pl-f-nombre');
+    const nombreEl = q('pl-f-nombre');
     if(nombreEl && receta.nombre) nombreEl.value = receta.nombre;
 
     // Raciones
-    const racionesEl = document.getElementById('pl-f-raciones');
+    const racionesEl = q('pl-f-raciones');
     if(racionesEl && receta.raciones) racionesEl.value = receta.raciones;
 
-    // tipoMenu chips
+    // tipoMenu chips — normaliza antes de aplicar
     if(receta.tipoMenu?.length){
-      formContainer.querySelectorAll('.pl-chip-tipomenu').forEach(c=>c.classList.remove('active'));
-      receta.tipoMenu.forEach(v=>{
-        formContainer.querySelector(`.pl-chip-tipomenu[data-val="${v}"]`)?.classList.add('active');
-      });
+      const valores = receta.tipoMenu.includes('todos') ? ['todos'] : receta.tipoMenu;
+      qsa('.pl-chip-tipomenu').forEach(c=>c.classList.remove('active'));
+      valores.forEach(v => qs(`.pl-chip-tipomenu[data-val="${v}"]`)?.classList.add('active'));
     }
 
     // tipoPlato chip
     if(receta.tipoPlato){
-      formContainer.querySelectorAll('.pl-chip-tipoplato').forEach(c=>c.classList.remove('active'));
-      formContainer.querySelector(`.pl-chip-tipoplato[data-val="${receta.tipoPlato}"]`)?.classList.add('active');
+      qsa('.pl-chip-tipoplato').forEach(c=>c.classList.remove('active'));
+      qs(`.pl-chip-tipoplato[data-val="${receta.tipoPlato}"]`)?.classList.add('active');
     }
 
     // tipoComida chip
     const momentoVal = Array.isArray(receta.tipoComida) ? receta.tipoComida[0] : receta.tipoComida;
     if(momentoVal){
-      formContainer.querySelectorAll('.pl-chip-tipocomida').forEach(c=>c.classList.remove('active'));
-      formContainer.querySelector(`.pl-chip-tipocomida[data-val="${momentoVal}"]`)?.classList.add('active');
+      qsa('.pl-chip-tipocomida').forEach(c=>c.classList.remove('active'));
+      qs(`.pl-chip-tipocomida[data-val="${momentoVal}"]`)?.classList.add('active');
     }
 
-    // preparacionFacil
-    const facilEl = document.getElementById('pl-f-facil');
+    // Preparación fácil
+    const facilEl = q('pl-f-facil');
     if(facilEl) facilEl.checked = !!receta.preparacionFacil;
 
-    // Etiquetas
-    const etiquetasSel = document.getElementById('pl-f-etiquetas-selected');
+    // Notificación previa
+    if(receta.notificacionPrevia){
+      const notifCb = q('pl-f-notif-cb');
+      const notifTxt = q('pl-f-notif-texto');
+      const notifBlock = q('pl-f-notif-block');
+      if(notifCb)    { notifCb.checked = true; }
+      if(notifBlock) { notifBlock.style.display = ''; }
+      if(notifTxt)   { notifTxt.value = receta.notificacionPrevia; }
+    }
+
+    // Etiquetas — limpia y rellena
+    const etiquetasSel = q('pl-f-etiquetas-selected');
     if(etiquetasSel && receta.etiquetas?.length){
       etiquetasSel.innerHTML = '';
       [...new Set(receta.etiquetas)].forEach(e => _addEtiqueta(e, formContainer));
     }
 
     // Ingredientes
-    const ingContainer = document.getElementById('pl-f-ingredientes');
+    const ingContainer = q('pl-f-ingredientes');
     if(ingContainer && receta.ingredientes?.length){
       ingContainer.innerHTML = '';
       const catalogo = Articulos.getCatalogo();
@@ -856,6 +853,12 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
       _bindIngRemove(ingContainer);
       _bindIngAutocomplete(ingContainer, catalogo);
     }
+
+    // Link guardado
+    const linkGuardadoBlock = q('pl-link-guardado-block');
+    const linkInput = q('pl-f-link');
+    if(linkGuardadoBlock) linkGuardadoBlock.style.display = '';
+    if(linkInput) linkInput.value = link || '';
   }
 
   // ── Submit ───────────────────────────────────────────────────────
