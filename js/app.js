@@ -186,15 +186,14 @@ const App = (() => {
   function navigate(viewName) {
     UI.activateView(viewName);
 
-    // Inicializa / renderiza el módulo correspondiente
     switch (viewName) {
-      case 'dashboard':  _renderDashboard();    break;
+      case 'dashboard':  _renderDashboard(); break;  // async, se ejecuta en background
       case 'inventario': Inventario.render();   break;
       case 'articulos':  Articulos.render();    break;
       case 'platos':     Platos.render();       break;
       case 'menu':       Menu.render();         break;
       case 'compra':     Compra.render();       break;
-      case 'historial':  Historial.render();     break;
+      case 'historial':  Historial.render();    break;
       case 'config':     Configuracion.render(); break;
     }
   }
@@ -205,36 +204,73 @@ const App = (() => {
    * Renderiza la pantalla de inicio con el resumen de la semana y las alertas.
    */
   async function _renderDashboard() {
+    const view = document.getElementById('view-dashboard');
+    if (!view) return;
+
+    // Reconstruye el HTML completo del dashboard cada vez
+    // (evita depender del HTML estático del index.html que puede estar desactualizado)
+    view.innerHTML = `
+      <section class="dashboard-section">
+        <h2 class="section-title">Esta semana</h2>
+        <div id="dashboard-menu-preview" class="card card-empty" style="text-align:center;padding:var(--space-6)">
+          <div class="loading-spinner" style="margin:0 auto var(--space-3)"></div>
+          <p class="text-sm text-muted">Cargando menú...</p>
+        </div>
+      </section>
+      <section class="dashboard-section">
+        <h2 class="section-title">Alertas</h2>
+        <div id="dashboard-alerts" class="alerts-list">
+          <p class="text-muted">Sin alertas pendientes.</p>
+        </div>
+      </section>
+      <section class="dashboard-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+          <h2 class="section-title" style="margin:0">Accesos rápidos</h2>
+          <button class="btn-text" id="dash-edit-accesos" style="font-size:var(--font-size-xs)">✏️ Editar</button>
+        </div>
+        <div class="quick-actions" id="dash-quick-actions"></div>
+      </section>
+      <section class="dashboard-section" id="debug-section">
+        <h2 class="section-title">Estado del sistema</h2>
+        <div id="drive-status" class="card">
+          <p id="drive-status-text">Verificando conexión...</p>
+        </div>
+      </section>`;
+
+    // Renderiza partes síncronas
+    _renderAccesos();
     _renderAlerts();
     _renderDriveStatus();
-    _renderAccesos();
 
-    // Sección de menú en el dashboard
+    // Botón editar accesos — se re-registra porque el HTML se reconstruyó
+    document.getElementById('dash-edit-accesos')
+      ?.addEventListener('click', _editarAccesos);
+
+    // Carga el calendario (async — puede tardar porque va a Drive)
     const calContainer = document.getElementById('dashboard-menu-preview');
-    if (!calContainer) return;
-
     try {
       const calHtml = await Menu.getCalendarioHTML();
-      if (calHtml) {
+      if (calHtml && calContainer) {
+        calContainer.className = '';
+        calContainer.style.padding = '';
         calContainer.innerHTML = `
           <div class="menu-calendario-wrapper">${calHtml}</div>
           <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
             <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
             <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
           </div>`;
-      } else {
+      } else if (calContainer) {
         calContainer.innerHTML = `
-          <div style="text-align:center;padding:var(--space-6) 0">
-            <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú para esta semana.</p>
-            <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>
-          </div>`;
+          <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú para esta semana.</p>
+          <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>`;
       }
-    } catch {
-      calContainer.innerHTML = `
-        <div style="text-align:center;padding:var(--space-4) 0">
-          <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">No hay menú generado.</p>
-          <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>
-        </div>`;
+    } catch(e) {
+      console.error('[Dashboard] Error cargando menú:', e);
+      if (calContainer) {
+        calContainer.innerHTML = `
+          <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú generado.</p>
+          <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>`;
+      }
     }
   }
 
