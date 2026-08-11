@@ -19,21 +19,23 @@ const Menu = (() => {
   // ── Reglas alimenticias (OMS / guía nutricional) ─────────────────
   // Seguimiento semanal por grupo alimenticio
   const GRUPOS_NUTRICIONALES = {
-    'legumbre':      { min: 3, max: 4, etiquetas: ['legumbre'] },
-    'pescado':       { min: 3, max: 4, etiquetas: ['pescado-blanco','pescado-azul'] },
-    'pescado-azul':  { min: 1, max: 2, etiquetas: ['pescado-azul'] },  // del total de pescado
-    'carne':         { min: 2, max: 3, etiquetas: ['carne-ave','carne-roja'] },
-    'carne-roja':    { min: 0, max: 1, etiquetas: ['carne-roja'] },    // max 1/semana
-    'huevo':         { min: 3, max: 4, etiquetas: ['huevo'] },
-    'verdura':       { min: 7, max: 99, etiquetas: ['verdura','ensalada'] }, // todos los días
+    'legumbre':     { min: 3, max: 4,  etiquetas: ['legumbre'] },
+    'pescado':      { min: 3, max: 4,  etiquetas: ['pescado-blanco','pescado-azul'] },
+    'pescado-azul': { min: 1, max: 2,  etiquetas: ['pescado-azul'] },
+    'carne':        { min: 2, max: 3,  etiquetas: ['carne-ave','carne-roja'] },
+    'carne-roja':   { min: 0, max: 1,  etiquetas: ['carne-roja'] },
+    'huevo':        { min: 3, max: 4,  etiquetas: ['huevo'] },
+    'verdura':      { min: 7, max: 99, etiquetas: ['verdura','ensalada'] },
+    'hidratos':     { min: 3, max: 7,  etiquetas: ['hidratos'] },
   };
 
+  // Detección de proteína/grupo por etiqueta (usa las etiquetas del sistema)
   const ETIQUETAS_PROTEINA = {
-    carne:   ['carne','pollo','cerdo','ternera','pavo','cordero'],
-    pescado: ['pescado','marisco','merluza','lubina','salmón','atún','bacalao'],
-    legumbre:['legumbre','garbanzos','lentejas','alubias','judías'],
-    huevo:   ['huevo','tortilla','revuelto'],
-    pasta:   ['pasta','macarrones','espagueti','fideos','arroz'],
+    carne:    ['carne-ave','carne-roja'],
+    pescado:  ['pescado-blanco','pescado-azul'],
+    legumbre: ['legumbre'],
+    huevo:    ['huevo'],
+    hidratos: ['hidratos'],
   };
 
   // ── API pública ──────────────────────────────────────────────────
@@ -757,6 +759,7 @@ const Menu = (() => {
         if((etqs.includes('pescado-blanco')||etqs.includes('pescado-azul')) && totalPescado >= 4) return false;
         if(etqs.includes('legumbre') && (contadorGrupos['legumbre']||0) >= 4) return false;
         if(etqs.includes('huevo') && (contadorGrupos['huevo']||0) >= 4) return false;
+        if(etqs.includes('hidratos') && (contadorGrupos['hidratos']||0) >= 7) return false;
         const totalCarne = (contadorGrupos['carne-ave']||0)+(contadorGrupos['carne-roja']||0);
         if((etqs.includes('carne-ave')||etqs.includes('carne-roja')) && totalCarne >= 3) return false;
       }
@@ -1388,7 +1391,7 @@ const Menu = (() => {
       { grupo:'carne',        label:'🍗 Carne',         etiquetas:['carne-ave','carne-roja'],            minSem:2,  maxSem:3,  color:'#ef4444' },
       { grupo:'carne-roja',   label:'🥩 Carne roja',   etiquetas:['carne-roja'],                       minSem:0,  maxSem:1,  color:'#dc2626' },
       { grupo:'huevo',        label:'🥚 Huevo',         etiquetas:['huevo'],                            minSem:3,  maxSem:4,  color:'#eab308' },
-      { grupo:'cereal',       label:'🌾 Cereal/pasta',  etiquetas:['cereal','pasta','arroz'],            minSem:3,  maxSem:7,  color:'#a78bfa' },
+      { grupo:'hidratos',     label:'🍞 Hidratos',      etiquetas:['hidratos'],                          minSem:3,  maxSem:7,  color:'#a78bfa' },
     ];
 
     // Agrupa días por semana ISO
@@ -1466,7 +1469,7 @@ const Menu = (() => {
     html += `
       <div style="background:var(--color-surface-2);border-radius:var(--radius-md);padding:var(--space-4);margin-top:var(--space-4)">
         <p class="text-xs text-muted"><strong>Nota:</strong> El análisis usa las etiquetas de grupo asignadas a cada plato
-        (verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada).
+        (verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada).
         Si un plato no tiene etiquetas, no se contabiliza. Puedes editarlas en el catálogo de platos.</p>
       </div>`;
 

@@ -25,12 +25,12 @@ const Platos = (() => {
   // Etiquetas de grupo alimenticio para el equilibrio nutricional
   const ETIQUETAS_GRUPOS = [
     'verdura','legumbre','pescado-blanco','pescado-azul','carne-ave',
-    'carne-roja','huevo','cereal','pasta','arroz','ensalada',
+    'carne-roja','huevo','hidratos','ensalada',
   ];
 
   const ETIQUETAS_SUGERIDAS = [
     'verdura','legumbre','pescado-blanco','pescado-azul','carne-ave','carne-roja',
-    'huevo','cereal','pasta','arroz','ensalada','sopa','guiso','rápido','bebé',
+    'huevo','hidratos','ensalada','sopa','guiso','rápido','bebé',
   ];
 
   // ── API pública ──────────────────────────────────────────────────
@@ -680,7 +680,7 @@ Reglas estrictas:
 - tipoPlato: solo "unico", "primero" o "segundo"
 - tipoComida: array, valores posibles: "comida", "cena", "ambos"
 - tipoMenu: array, valores posibles: "mayores", "bebe", "todos"
-- etiquetas: solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada
+- etiquetas: solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
 - unidad: solo UN, KG, GR, L, ML o PAQ
 - categoria ingrediente: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Pasta arroz y cereales, Especias, Aceites y vinagres, Salsas y condimentos, Charcutería y envasados, Pan y bollería, Repostería y panadería, Congelados, Bebidas
 - raciones: número entero estimado de raciones que sale la receta
