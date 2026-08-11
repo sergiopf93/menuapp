@@ -204,6 +204,7 @@ const App = (() => {
   async function _renderDashboard() {
     _renderAlerts();
     _renderDriveStatus();
+    _renderAccesos();
     // Carga y muestra el calendario de menú en el dashboard
     const calHtml = await Menu.getCalendarioHTML().catch(()=>null);
     const calContainer = document.getElementById('dashboard-menu-preview');
@@ -215,6 +216,69 @@ const App = (() => {
           <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
         </div>`;
     }
+  }
+
+  // Opciones disponibles para accesos directos
+  const ACCESOS_OPCIONES = [
+    { id:'menu',       icon:'📅', label:'Menú' },
+    { id:'compra',     icon:'🛒', label:'Compra' },
+    { id:'inventario', icon:'🥕', label:'Despensa' },
+    { id:'platos',     icon:'🍽️', label:'Platos' },
+    { id:'articulos',  icon:'📦', label:'Artículos' },
+    { id:'historial',  icon:'📋', label:'Historial' },
+    { id:'config',     icon:'⚙️', label:'Configuración' },
+  ];
+
+  function _renderAccesos() {
+    const container = document.getElementById('dash-quick-actions');
+    if (!container) return;
+    const guardados = Storage.getSync('accesos_rapidos');
+    const accesos = guardados
+      ? JSON.parse(guardados)
+      : ['menu','compra','inventario','platos'];
+
+    container.innerHTML = accesos.map(id => {
+      const op = ACCESOS_OPCIONES.find(o=>o.id===id);
+      if (!op) return '';
+      return `<button class="quick-action-btn" onclick="App.navigate('${op.id}')">
+        <span class="qa-icon">${op.icon}</span>
+        <span class="qa-label">${op.label}</span>
+      </button>`;
+    }).join('');
+
+    document.getElementById('dash-edit-accesos')?.addEventListener('click', _editarAccesos);
+  }
+
+  function _editarAccesos() {
+    const guardados = Storage.getSync('accesos_rapidos');
+    const seleccionados = guardados ? JSON.parse(guardados) : ['menu','compra','inventario','platos'];
+
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">Selecciona hasta 6 accesos directos que aparecerán en el inicio.</p>
+      <div style="display:flex;flex-direction:column;gap:var(--space-2)">
+        ${ACCESOS_OPCIONES.map(op => `
+          <label style="display:flex;align-items:center;gap:var(--space-3);cursor:pointer;padding:var(--space-2) 0">
+            <input type="checkbox" class="acceso-check" data-id="${op.id}"
+                   ${seleccionados.includes(op.id)?'checked':''}/>
+            <span>${op.icon} ${op.label}</span>
+          </label>`).join('')}
+      </div>`;
+
+    let modalRef = UI.showModal({
+      title: 'Editar accesos rápidos',
+      content: container,
+      buttons: [
+        { label:'Cancelar', type:'secondary' },
+        { label:'Guardar', type:'primary', onClick: () => {
+          const checked = [...container.querySelectorAll('.acceso-check:checked')]
+            .map(c=>c.dataset.id).slice(0,6);
+          Storage.setSync('accesos_rapidos', JSON.stringify(checked));
+          _renderAccesos();
+          if(modalRef) modalRef.close();
+        }},
+      ],
+    });
   }
 
   /**
