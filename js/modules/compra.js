@@ -163,10 +163,14 @@ const Compra = (() => {
       <!-- Añadir artículo extra -->
       <div class="dashboard-section">
         <h2 class="section-title">Añadir artículo extra</h2>
-        <div class="compra-add-extra">
-          <input class="form-control" id="compra-extra-input" type="text"
-                 placeholder="Nombre del artículo..." autocomplete="off"
-                 style="flex:1"/>
+        <div class="compra-add-extra" style="position:relative">
+          <div style="flex:1;position:relative">
+            <input class="form-control" id="compra-extra-input" type="text"
+                   placeholder="Escribe para buscar en el catálogo..." autocomplete="off"
+                   style="width:100%"/>
+            <div id="compra-extra-suggestions" class="pl-ing-suggestions hidden"
+                 style="position:absolute;left:0;right:0;top:100%;z-index:100"></div>
+          </div>
           <button class="btn btn-secondary" id="compra-btn-extra">Añadir</button>
         </div>
       </div>
@@ -293,26 +297,42 @@ const Compra = (() => {
       }
     });
 
-    // Artículo extra
+    // Artículo extra — con autocomplete del catálogo
     const extraInput = document.getElementById('compra-extra-input');
-    document.getElementById('compra-btn-extra')?.addEventListener('click', () => {
+    const suggBox    = document.getElementById('compra-extra-suggestions');
+    const catalogo   = App.getState().catalogo || [];
+
+    // Estado del artículo seleccionado (puede ser del catálogo o libre)
+    let _extraSeleccionado = null;
+
+    function _addExtra() {
       const nombre = extraInput?.value.trim();
       if (!nombre) return;
+
+      // Si viene del catálogo, usa sus datos; si es libre, valores por defecto
+      const art = _extraSeleccionado?.nombre.toLowerCase() === nombre.toLowerCase()
+        ? _extraSeleccionado : null;
+
       const nuevo = {
-        id: `extra-${Date.now()}`,
-        nombre,
-        cantidad: 1,
-        unidad: 'UN',
-        seccion: 'Otros',
-        paqueteMinimo: 1,
-        enDespensa: false,
-        comprado: false,
+        id:           `extra-${Date.now()}`,
+        nombre:       art?.nombre || nombre,
+        cantidad:     art?.paqueteMinimo || 1,
+        unidad:       art?.unidad || 'UN',
+        seccion:      art?.categoria || 'Otros',
+        paqueteMinimo:art?.paqueteMinimo || 1,
+        unidadesPorPack: art?.unidadesPorPack || 1,
+        enDespensa:   false,
+        comprado:     false,
         noDisponible: false,
-        esExtra: true,
+        esExtra:      true,
       };
+
       _compraActual.items.push(nuevo);
       App.getState().compraActual = _compraActual;
-      if (extraInput) extraInput.value = '';
+      extraInput.value = '';
+      _extraSeleccionado = null;
+      if(suggBox) suggBox.classList.add('hidden');
+
       // Añade a la lista sin re-renderizar todo
       const lista = document.getElementById('compra-items-lista');
       if (lista) {
@@ -320,11 +340,74 @@ const Compra = (() => {
         div.innerHTML = _buildItemRevision(nuevo);
         lista.appendChild(div.firstElementChild);
       }
-      UI.showToast(`${nombre} añadido`, 'success');
-    });
+      UI.showToast(`${nuevo.nombre} añadido`, 'success');
+    }
+
+    document.getElementById('compra-btn-extra')?.addEventListener('click', _addExtra);
 
     extraInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('compra-btn-extra')?.click();
+      if (e.key === 'Enter') { _addExtra(); return; }
+      if (e.key === 'Escape') { suggBox?.classList.add('hidden'); return; }
+      // Navegar sugerencias con flechas
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const items = suggBox?.querySelectorAll('.compra-sugg-item');
+        if (!items?.length) return;
+        const active = suggBox.querySelector('.compra-sugg-item.active');
+        let idx = active ? [...items].indexOf(active) : -1;
+        active?.classList.remove('active');
+        idx = e.key === 'ArrowDown'
+          ? Math.min(idx + 1, items.length - 1)
+          : Math.max(idx - 1, 0);
+        items[idx].classList.add('active');
+        e.preventDefault();
+      }
+    });
+
+    let _suggTimer;
+    extraInput?.addEventListener('input', () => {
+      clearTimeout(_suggTimer);
+      const val = extraInput.value.trim().toLowerCase();
+      if (!val || val.length < 1) { suggBox?.classList.add('hidden'); return; }
+
+      _suggTimer = setTimeout(() => {
+        const matches = catalogo
+          .filter(a => a.activo !== false && a.nombre.toLowerCase().includes(val))
+          .sort((a, b) => {
+            // Primero los que empiezan por el texto buscado
+            const aStarts = a.nombre.toLowerCase().startsWith(val);
+            const bStarts = b.nombre.toLowerCase().startsWith(val);
+            if (aStarts && !bStarts) return -1;
+            if (!aStarts && bStarts) return 1;
+            return a.nombre.localeCompare(b.nombre, 'es');
+          })
+          .slice(0, 8);
+
+        if (!matches.length) { suggBox?.classList.add('hidden'); return; }
+
+        suggBox.innerHTML = matches.map(a => `
+          <div class="compra-sugg-item" data-nombre="${UI.escapeHtml(a.nombre)}" data-id="${a.id}">
+            <span class="compra-sugg-nombre">${UI.escapeHtml(a.nombre)}</span>
+            <span class="compra-sugg-meta">${UI.escapeHtml(a.categoria||'')} · ${a.unidad}</span>
+          </div>`).join('');
+        suggBox.classList.remove('hidden');
+
+        // Bind clicks en sugerencias
+        suggBox.querySelectorAll('.compra-sugg-item').forEach(item => {
+          item.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // evita blur del input
+            const art = catalogo.find(a => a.id === item.dataset.id);
+            _extraSeleccionado = art || null;
+            extraInput.value = item.dataset.nombre;
+            suggBox.classList.add('hidden');
+            _addExtra();
+          });
+        });
+      }, 150);
+    });
+
+    // Cierra sugerencias al perder foco
+    extraInput?.addEventListener('blur', () => {
+      setTimeout(() => suggBox?.classList.add('hidden'), 200);
     });
   }
 
