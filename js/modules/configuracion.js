@@ -627,7 +627,7 @@ const Configuracion = (() => {
     document.getElementById('cfg-gemini-save')?.addEventListener('click',()=>{
       const key = document.getElementById('cfg-gemini-key')?.value.trim();
       if (!key) { UI.showToast('Introduce una API key','error'); return; }
-      if (!key.startsWith('AIza')) { UI.showToast('La API key de Gemini debe empezar por AIza...','error'); return; }
+      if (key.length < 20) { UI.showToast('La API key parece demasiado corta','error'); return; }
       Storage.setSync('gemini_api_key', key);
       UI.showToast('API key guardada en este dispositivo ✓','success');
       _renderSeccion(); // re-renderiza para mostrar el badge y botón de prueba
