@@ -758,12 +758,24 @@ Máximo 12 ingredientes principales.`;
 
       const text2  = await callGemini(prompt2);
       console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0, 600)));
-      // Extrae array de ingredientes
+      // Extrae el primer array JSON válido usando conteo balanceado de corchetes
       const startArr = text2.indexOf('[');
-      const endArr   = text2.lastIndexOf(']');
       let ingredientes = [];
-      if (startArr !== -1 && endArr > startArr) {
-        try { ingredientes = JSON.parse(text2.slice(startArr, endArr+1)); } catch {}
+      if (startArr !== -1) {
+        let arrStr = text2.slice(startArr);
+        let d=0, e=-1, iStr=false, iEsc=false;
+        for(let i=0; i<arrStr.length; i++){
+          const c=arrStr[i];
+          if(iEsc){iEsc=false;continue;}
+          if(c==='\\'){iEsc=true;continue;}
+          if(c==='"'){iStr=!iStr;continue;}
+          if(iStr) continue;
+          if(c==='[') d++;
+          else if(c===']'){d--;if(d===0){e=i;break;}}
+        }
+        if(e>0){
+          try { ingredientes = JSON.parse(arrStr.slice(0, e+1)); } catch {}
+        }
       }
 
       // Combina resultado
