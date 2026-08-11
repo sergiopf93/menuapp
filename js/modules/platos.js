@@ -306,7 +306,7 @@ const Platos = (() => {
       buttons:[
         {label:'Cancelar',type:'secondary'},
         {label:plato?'Guardar cambios':'Añadir plato',type:'primary',onClick:async()=>{
-          const ok = await _submitForm(plato);
+          const ok = await _submitForm(plato, container);
           if(ok && modalRef) modalRef.close();
         }},
       ],
@@ -798,42 +798,59 @@ Reglas estrictas:
 
   // ── Submit ───────────────────────────────────────────────────────
 
-  async function _submitForm(platoOriginal) {
-    const nombre = document.getElementById('pl-f-nombre')?.value.trim();
+  async function _submitForm(platoOriginal, container) {
+    // CRÍTICO: todos los querySelector usan container (scope del modal), nunca document
+    // Esto evita leer valores acumulados de modales anteriores en el DOM
+
+    const nombre = container.querySelector('#pl-f-nombre')?.value.trim();
     if (!nombre) { UI.showToast('El nombre es obligatorio','error'); return false; }
 
-    const tipoMenu = [...document.querySelectorAll('.pl-chip-tipomenu.active')].map(c=>c.dataset.val);
+    // tipoMenu: puede ser múltiple, normaliza 'todos' como valor único
+    const tipoMenuRaw = [...container.querySelectorAll('.pl-chip-tipomenu.active')].map(c=>c.dataset.val);
+    const tipoMenu = tipoMenuRaw.includes('todos') ? ['todos'] : [...new Set(tipoMenuRaw)];
     if (!tipoMenu.length) { UI.showToast('Selecciona para quién es el plato','error'); return false; }
 
-    const tipoPlato  = document.querySelector('.pl-chip-tipoplato.active')?.dataset.val || 'unico';
-    const tipoComida = [document.querySelector('.pl-chip-tipocomida.active')?.dataset.val || 'ambos'];
-    const raciones   = parseInt(document.getElementById('pl-f-raciones')?.value)||2;
-    const frecuencia = parseInt(document.getElementById('pl-f-freq')?.value)||2;
-    const repetir    = document.getElementById('pl-f-repetir')?.checked || false;
-    const facil      = document.getElementById('pl-f-facil')?.checked || false;
-    const sobrasCb   = document.getElementById('pl-f-sobras-cb')?.checked || false;
-    const diasSobras = sobrasCb ? (parseInt(document.getElementById('pl-f-sobras-dias')?.value)||2) : 0;
-    const notifCb    = document.getElementById('pl-f-notif-cb')?.checked;
-    const notifTexto = document.getElementById('pl-f-notif-texto')?.value.trim()||null;
-    const notifHoras = parseInt(document.getElementById('pl-f-notif-horas')?.value)||16;
-    const activo     = document.getElementById('pl-f-activo')?.checked !== false;
-    const linkReceta = document.getElementById('pl-f-link')?.value.trim()||null;
+    // tipoPlato: single select
+    const tipoPlato = container.querySelector('.pl-chip-tipoplato.active')?.dataset.val || 'unico';
 
-    // Etiquetas únicas — lee data-etiqueta del span, no data-e del botón de eliminar
+    // tipoComida: single select, guardado como array por compatibilidad
+    const tipoComidaVal = container.querySelector('.pl-chip-tipocomida.active')?.dataset.val || 'ambos';
+    const tipoComida = [tipoComidaVal];
+
+    const raciones   = parseInt(container.querySelector('#pl-f-raciones')?.value)||2;
+    const frecuencia = parseInt(container.querySelector('#pl-f-freq')?.value)||2;
+    const repetir    = container.querySelector('#pl-f-repetir')?.checked||false;
+    const facil      = container.querySelector('#pl-f-facil')?.checked||false;
+    const sobrasCb   = container.querySelector('#pl-f-sobras-cb')?.checked||false;
+    const diasSobras = sobrasCb?(parseInt(container.querySelector('#pl-f-sobras-dias')?.value)||2):0;
+    const notifCb    = container.querySelector('#pl-f-notif-cb')?.checked;
+    const notifTexto = container.querySelector('#pl-f-notif-texto')?.value.trim()||null;
+    const notifHoras = parseInt(container.querySelector('#pl-f-notif-horas')?.value)||16;
+    const activo     = container.querySelector('#pl-f-activo')?.checked!==false;
+    const linkReceta = container.querySelector('#pl-f-link')?.value.trim()||null;
+
+    // Etiquetas únicas — scoped al container, usando data-etiqueta (no data-rm)
     const etiquetas = [...new Set(
-      [...document.querySelectorAll('#pl-f-etiquetas-selected .pl-etiqueta--editable')]
+      [...container.querySelectorAll('#pl-f-etiquetas-selected .pl-etiqueta--editable')]
         .map(el => el.dataset.etiqueta).filter(Boolean)
     )];
 
-    // Ingredientes
-    const ingredientes = [];
-    document.querySelectorAll('#pl-f-ingredientes .pl-ing-row').forEach(row => {
+    // Ingredientes — scoped al container, deduplica por nombre (evita acumulación)
+    const ingMap = new Map();
+    container.querySelectorAll('#pl-f-ingredientes .pl-ing-row').forEach(row => {
       const nom = row.querySelector('[data-field="nombre"]')?.value.trim();
-      const cat = row.querySelector('[data-field="categoria"]')?.value.trim()||'Otros';
-      const qty = parseFloat(row.querySelector('[data-field="cantidad"]')?.value);
-      const uni = row.querySelector('[data-field="unidad"]')?.value;
-      if (nom) ingredientes.push({ nombre:nom, categoria:cat, cantidad:isNaN(qty)?1:qty, unidad:uni });
+      if (!nom) return;
+      const key = nom.toLowerCase();
+      if (!ingMap.has(key)) {
+        ingMap.set(key, {
+          nombre: nom,
+          categoria: row.querySelector('[data-field="categoria"]')?.value.trim()||'Otros',
+          cantidad:  parseFloat(row.querySelector('[data-field="cantidad"]')?.value)||1,
+          unidad:    row.querySelector('[data-field="unidad"]')?.value||'UN',
+        });
+      }
     });
+    const ingredientes = [...ingMap.values()];
 
     const state = App.getState();
     const platos = [...(state.platos||[])];
@@ -844,17 +861,17 @@ Reglas estrictas:
       frecuenciaMinSemanas: frecuencia,
       permiteRepeticion: repetir,
       preparacionFacil: facil,
-      diasSobras: diasSobras || 0,
-      notificacionPrevia: notifCb ? notifTexto : null,
-      horasNotificacionPrevia: notifCb ? notifHoras : null,
-      linkReceta,
-      creadoDesdeLink: linkReceta ? (platoOriginal?.creadoDesdeLink || ahora) : null,
+      diasSobras: diasSobras||0,
+      notificacionPrevia: notifCb?notifTexto:null,
+      horasNotificacionPrevia: notifCb?notifHoras:null,
+      linkReceta: linkReceta||null,
+      creadoDesdeLink: linkReceta?(platoOriginal?.creadoDesdeLink||ahora):null,
       etiquetas, ingredientes, activo,
       actualizadoEn: ahora,
     };
 
     if (platoOriginal) {
-      const idx = platos.findIndex(p => p.id===platoOriginal.id);
+      const idx = platos.findIndex(p=>p.id===platoOriginal.id);
       if (idx===-1) return false;
       platos[idx] = {...platos[idx], ...datos};
       UI.showToast(`${nombre} actualizado`,'success');
@@ -868,8 +885,10 @@ Reglas estrictas:
     }
 
     await App.setState('platos', platos);
+    _renderList();
     return true;
   }
+
 
   function _renderList_after_submit() { _renderList(); }
 
