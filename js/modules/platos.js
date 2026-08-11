@@ -673,33 +673,19 @@ const Platos = (() => {
     if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con Gemini...'; statusEl.classList.remove('hidden'); }
     if(btn) btn.disabled = true;
 
-    const PROMPT = `Accede a este link de receta y analiza su contenido: ${link}
+    const PROMPT = `Analiza la receta de este link y extrae los datos: ${link}
 
-Devuelve SOLO un objeto JSON válido con esta estructura exacta (sin markdown, sin texto adicional, sin comentarios):
-{
-  "nombre": "nombre del plato en español",
-  "raciones": 4,
-  "tipoPlato": "unico",
-  "tipoComida": ["comida"],
-  "tipoMenu": ["todos"],
-  "ingredientes": [
-    {"nombre": "nombre ingrediente", "cantidad": 2, "unidad": "UN", "categoria": "Frutas y verduras"}
-  ],
-  "etiquetas": ["verdura"],
-  "preparacionFacil": false,
-  "notificacionPrevia": null
-}
+Responde ÚNICAMENTE con un JSON válido y completo, sin markdown ni texto adicional:
+{"nombre":"nombre del plato","raciones":4,"tipoPlato":"unico","tipoComida":["comida"],"tipoMenu":["todos"],"ingredientes":[{"nombre":"ingrediente","cantidad":1,"unidad":"UN","categoria":"Frutas y verduras"}],"etiquetas":["verdura"],"preparacionFacil":false,"notificacionPrevia":null}
 
-Reglas estrictas:
-- tipoPlato: solo "unico", "primero" o "segundo"
-- tipoComida: array, valores posibles: "comida", "cena", "ambos"
-- tipoMenu: array, valores posibles: "mayores", "bebe", "todos"
-- etiquetas: solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
-- unidad: solo UN, KG, GR, L, ML o PAQ
-- categoria ingrediente: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Pasta arroz y cereales, Especias, Aceites y vinagres, Salsas y condimentos, Charcutería y envasados, Pan y bollería, Repostería y panadería, Congelados, Bebidas
-- raciones: número entero estimado de raciones que sale la receta
-- preparacionFacil: true si es una receta rápida (<30 min) o sin cocción
-- notificacionPrevia: null o texto corto si requiere preparación previa (ej: "Poner garbanzos en remojo")`;
+Valores válidos:
+- tipoPlato: "unico", "primero" o "segundo"
+- tipoComida: ["comida"], ["cena"] o ["ambos"]
+- tipoMenu: ["mayores"], ["bebe"] o ["todos"]
+- etiquetas (máx 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
+- unidad: UN, KG, GR, L, ML, PAQ
+- categoria: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Charcutería y envasados, Pan y bollería, Repostería y panadería, Congelados, Bebidas
+- Limita ingredientes a los 10 principales`;
 
     try {
       const response = await fetch(
@@ -711,8 +697,8 @@ Reglas estrictas:
             contents: [{ parts: [{ text: PROMPT }] }],
             generationConfig: {
               temperature: 0.1,
-              maxOutputTokens: 1500,
-              responseMimeType: 'application/json',
+              maxOutputTokens: 1024,
+              // Sin responseMimeType — evita truncaciones en modo JSON estricto
             },
           }),
         }
@@ -728,9 +714,36 @@ Reglas estrictas:
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error('Gemini no devolvió contenido');
 
-      // Limpia posibles backticks residuales y parsea
-      const jsonStr = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-      const receta = JSON.parse(jsonStr);
+      // Extrae el JSON de forma robusta — Gemini a veces rodea el JSON con texto
+      let jsonStr = text.trim();
+
+      // Elimina bloques de código markdown si los hay
+      jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim();
+
+      // Si el JSON está incompleto (string cortado), intenta repararlo
+      // Busca el primer { y el último } balanceado
+      const firstBrace = jsonStr.indexOf('{');
+      if (firstBrace > 0) jsonStr = jsonStr.slice(firstBrace);
+
+      // Cuenta llaves para encontrar el cierre correcto
+      let depth = 0, lastClose = -1;
+      for (let i = 0; i < jsonStr.length; i++) {
+        if (jsonStr[i] === '{') depth++;
+        else if (jsonStr[i] === '}') { depth--; if (depth === 0) { lastClose = i; break; } }
+      }
+      if (lastClose > 0) jsonStr = jsonStr.slice(0, lastClose + 1);
+
+      // Elimina caracteres de control que rompen JSON
+      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' ');
+
+      let receta;
+      try {
+        receta = JSON.parse(jsonStr);
+      } catch(parseErr) {
+        // Último intento: pide a Gemini solo el JSON sin nada más
+        console.warn('[Platos] JSON inválido, reintentando con prompt más estricto:', parseErr.message);
+        throw new Error(`JSON inválido de Gemini: ${parseErr.message}. Intenta con otra URL o rellena los datos manualmente.`);
+      }
 
       _rellenarFormConReceta(receta, link, formContainer);
 
