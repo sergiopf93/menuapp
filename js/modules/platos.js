@@ -742,41 +742,54 @@ etiquetas (max 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, c
       const meta  = extraerJSON(text1);
       if (!meta?.nombre) throw new Error('No se pudo identificar el plato. Prueba con otra URL.');
 
-      // ── Llamada 2: ingredientes (JSON mode, sin googleSearch) ──────
+      // ── Llamada 2: ingredientes v4 ──────────────────────────────────
       setStatus('🤖 Paso 2/2 — Extrayendo ingredientes...');
 
-      const prompt2 = `Ingredientes de la receta "${meta.nombre}" (máximo 10). Responde con array JSON: [{"nombre":"string","cantidad":1,"unidad":"UN","categoria":"string"}]. Unidades: UN KG GR L ML PAQ. Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Congelados, Bebidas.`;
+      // Pide solo los ingredientes por nombre — sin URL, sin googleSearch
+      // Prompt muy corto para evitar truncación
+      const prompt2 = `Dame los 8 ingredientes principales de la receta ${meta.nombre}.
+Responde solo con un JSON array sin markdown:
+[{"nombre":"tomate","cantidad":2,"unidad":"UN","categoria":"Frutas y verduras"}]
+Unidades válidas: UN KG GR L ML PAQ
+Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Congelados, Bebidas`;
 
-      // Llamada sin googleSearch y con JSON mode → respuesta corta y sin truncación
       const r2 = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             contents:[{parts:[{text:prompt2}]}],
-            generationConfig:{ temperature:0.1, maxOutputTokens:600, responseMimeType:'application/json' }
+            generationConfig:{ temperature:0, maxOutputTokens:800 }
           })
         }
       );
       const d2    = r2.ok ? await r2.json() : {};
       const text2 = (d2?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
       console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0,400)));
-      // Extrae el primer array JSON válido usando conteo balanceado de corchetes
-      const startArr = text2.indexOf('[');
+      // Extrae el primer array JSON válido
+      // Si hay strings truncados, los repara antes de parsear
       let ingredientes = [];
+      const startArr = text2.indexOf('[');
       if (startArr !== -1) {
         let arrStr = text2.slice(startArr);
-        let d=0, e=-1, iStr=false, iEsc=false;
-        for(let i=0; i<arrStr.length; i++){
+        // Encuentra el primer ] balanceado (ignorando los de dentro de strings)
+        let d=0, e=-1, inS=false, esc=false;
+        for(let i=0;i<arrStr.length;i++){
           const c=arrStr[i];
-          if(iEsc){iEsc=false;continue;}
-          if(c==='\\'){iEsc=true;continue;}
-          if(c==='"'){iStr=!iStr;continue;}
-          if(iStr) continue;
+          if(esc){esc=false;continue;}
+          if(c==='\\'){esc=true;continue;}
+          if(c==='"'){inS=!inS;continue;}
+          if(inS) continue;
           if(c==='[') d++;
           else if(c===']'){d--;if(d===0){e=i;break;}}
         }
-        if(e>0){
-          try { ingredientes = JSON.parse(arrStr.slice(0, e+1)); } catch {}
+        if(e>0) arrStr=arrStr.slice(0,e+1);
+        // Intenta parsear directamente
+        try {
+          ingredientes = JSON.parse(arrStr);
+        } catch {
+          // Repara el array (strings sin cerrar, comas extra)
+          const repaired = _repairJSON('[' + arrStr.slice(1));
+          try { ingredientes = JSON.parse(repaired); } catch {}
         }
       }
 
