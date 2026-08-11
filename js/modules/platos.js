@@ -742,22 +742,24 @@ etiquetas (max 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, c
       const meta  = extraerJSON(text1);
       if (!meta?.nombre) throw new Error('No se pudo identificar el plato. Prueba con otra URL.');
 
-      // ── Llamada 2: ingredientes ──────────────────────────────────
+      // ── Llamada 2: ingredientes (JSON mode, sin googleSearch) ──────
       setStatus('🤖 Paso 2/2 — Extrayendo ingredientes...');
 
-      const prompt2 = `${fuenteDesc}: ${link}
+      const prompt2 = `Ingredientes de la receta "${meta.nombre}" (máximo 10). Responde con array JSON: [{"nombre":"string","cantidad":1,"unidad":"UN","categoria":"string"}]. Unidades: UN KG GR L ML PAQ. Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Congelados, Bebidas.`;
 
-Lista los ingredientes de la receta "${meta.nombre}".
-Devuelve SOLO un JSON array (sin markdown, sin texto extra):
-[{"nombre":"string","cantidad":1,"unidad":"UN","categoria":"Frutas y verduras"}]
-
-unidad: UN, KG, GR, L, ML, PAQ
-categoria: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Repostería y panadería, Congelados, Bebidas
-
-Máximo 12 ingredientes principales.`;
-
-      const text2  = await callGemini(prompt2);
-      console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0, 600)));
+      // Llamada sin googleSearch y con JSON mode → respuesta corta y sin truncación
+      const r2 = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            contents:[{parts:[{text:prompt2}]}],
+            generationConfig:{ temperature:0.1, maxOutputTokens:600, responseMimeType:'application/json' }
+          })
+        }
+      );
+      const d2    = r2.ok ? await r2.json() : {};
+      const text2 = (d2?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
+      console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0,400)));
       // Extrae el primer array JSON válido usando conteo balanceado de corchetes
       const startArr = text2.indexOf('[');
       let ingredientes = [];
