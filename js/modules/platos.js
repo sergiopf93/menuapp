@@ -647,26 +647,23 @@ const Platos = (() => {
     const link = document.getElementById('pl-link-input')?.value.trim();
     if (!link) { UI.showToast('Introduce un link válido','error'); return; }
 
+    // Comprueba que hay API key de Gemini configurada
+    const apiKey = Storage.getSync('gemini_api_key');
+    if (!apiKey) {
+      UI.showToast('Configura tu API key de Gemini en Config → Cuenta','error', 5000);
+      return;
+    }
+
     const statusEl = document.getElementById('pl-link-status');
     const btn = document.getElementById('pl-link-analizar');
-    if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con IA...'; }
+    if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con Gemini...'; statusEl.classList.remove('hidden'); }
     if(btn) btn.disabled = true;
 
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages: [{
-            role: 'user',
-            content: `Analiza esta receta del link: ${link}
+    const PROMPT = `Accede a este link de receta y analiza su contenido: ${link}
 
-Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicional):
+Devuelve SOLO un objeto JSON válido con esta estructura exacta (sin markdown, sin texto adicional, sin comentarios):
 {
-  "nombre": "nombre del plato",
+  "nombre": "nombre del plato en español",
   "raciones": 4,
   "tipoPlato": "unico",
   "tipoComida": ["comida"],
@@ -674,45 +671,70 @@ Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicio
   "ingredientes": [
     {"nombre": "nombre ingrediente", "cantidad": 2, "unidad": "UN", "categoria": "Frutas y verduras"}
   ],
-  "etiquetas": ["verdura", "pescado-blanco"],
+  "etiquetas": ["verdura"],
   "preparacionFacil": false,
   "notificacionPrevia": null
 }
 
-Reglas:
-- tipoPlato: "unico", "primero" o "segundo"
-- tipoComida: array con "comida", "cena" o "ambos"
-- tipoMenu: array con "mayores", "bebe" o "todos"
-- etiquetas: usa solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada
-- unidad: UN, KG, GR, L, ML, PAQ
-- categoria: una de las secciones del supermercado (Frutas y verduras, Carnicería, Pescadería, Lácteos, etc.)`
-          }]
-        })
-      });
+Reglas estrictas:
+- tipoPlato: solo "unico", "primero" o "segundo"
+- tipoComida: array, valores posibles: "comida", "cena", "ambos"
+- tipoMenu: array, valores posibles: "mayores", "bebe", "todos"
+- etiquetas: solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada
+- unidad: solo UN, KG, GR, L, ML o PAQ
+- categoria ingrediente: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Pasta arroz y cereales, Especias, Aceites y vinagres, Salsas y condimentos, Charcutería y envasados, Pan y bollería, Repostería y panadería, Congelados, Bebidas
+- raciones: número entero estimado de raciones que sale la receta
+- preparacionFacil: true si es una receta rápida (<30 min) o sin cocción
+- notificacionPrevia: null o texto corto si requiere preparación previa (ej: "Poner garbanzos en remojo")`;
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: PROMPT }] }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 1500,
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(()=>({}));
+        const msg = err?.error?.message || `HTTP ${response.status}`;
+        throw new Error(msg);
+      }
 
       const data = await response.json();
-      const textBlock = data.content?.find(c => c.type === 'text');
-      if (!textBlock?.text) throw new Error('Sin respuesta de la IA');
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Gemini no devolvió contenido');
 
-      let jsonStr = textBlock.text.trim();
-      jsonStr = jsonStr.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+      // Limpia posibles backticks residuales y parsea
+      const jsonStr = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
       const receta = JSON.parse(jsonStr);
 
-      // Rellena el formulario con los datos extraídos
       _rellenarFormConReceta(receta, link, formContainer);
 
       if(statusEl){ statusEl.textContent='✓ Receta cargada correctamente'; statusEl.className='status-ok'; }
       document.getElementById('pl-link-block')?.classList.add('hidden');
 
-      // Muestra el campo de link guardado
       const linkGuardado = document.getElementById('pl-link-guardado-block');
-      const linkInput = document.getElementById('pl-f-link');
+      const linkInput    = document.getElementById('pl-f-link');
       if(linkGuardado) linkGuardado.style.display='';
-      if(linkInput) linkInput.value = link;
+      if(linkInput)    linkInput.value = link;
 
     } catch(err) {
-      console.error('[Platos] Error analizando link:', err);
-      if(statusEl){ statusEl.textContent=`Error: ${err.message}. Rellena los datos manualmente.`; statusEl.className='status-error'; }
+      console.error('[Platos] Error Gemini:', err);
+      const msg = err.message?.includes('API_KEY') ? 'API key inválida. Revísala en Config → Cuenta.'
+                : err.message?.includes('quota')   ? 'Límite de uso alcanzado. Inténtalo más tarde.'
+                : err.message;
+      if(statusEl){ statusEl.textContent=`❌ ${msg}`; statusEl.className='status-error'; }
+      UI.showToast('Error al analizar la receta','error');
     } finally {
       if(btn) btn.disabled = false;
     }

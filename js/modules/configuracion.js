@@ -548,6 +548,7 @@ const Configuracion = (() => {
   function _buildCuenta() {
     const user=Auth.getUserInfo();
     const {rootFolderId}=Drive.getFolderIds();
+    const geminiKey = Storage.getSync('gemini_api_key') || '';
     return `
       <div class="cfg-section">
         <h2 class="cfg-section-title">Mi cuenta</h2>
@@ -558,6 +559,7 @@ const Configuracion = (() => {
               <p class="text-sm text-muted">${UI.escapeHtml(user.email)}</p>
             </div>
           </div>`:''}
+
         <div class="form-group" style="margin-top:var(--space-4)">
           <p class="text-sm text-muted">
             📁 Carpeta de datos en Google Drive:
@@ -567,6 +569,34 @@ const Configuracion = (() => {
             </a>
           </p>
         </div>
+
+        <div style="border-top:1px solid var(--color-border);padding-top:var(--space-4);margin-top:var(--space-4)">
+          <h3 class="cfg-section-title" style="margin-bottom:var(--space-2)">🤖 IA — Gemini API</h3>
+          <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">
+            Necesaria para el botón "Cargar receta desde link" en Platos.<br>
+            Es <strong>gratuita</strong> hasta 1.500 llamadas/día.
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" class="btn-text" style="display:inline">
+              Obtener API key ↗
+            </a>
+          </p>
+          <div class="form-group">
+            <label class="form-label" for="cfg-gemini-key">Google Gemini API Key</label>
+            <div style="display:flex;gap:var(--space-2)">
+              <input class="form-control" id="cfg-gemini-key" type="password"
+                     value="${UI.escapeHtml(geminiKey)}"
+                     placeholder="AIza..."/>
+              <button class="btn btn-primary" id="cfg-gemini-save" style="flex-shrink:0">Guardar</button>
+            </div>
+            <p class="form-hint">
+              Se guarda solo en este dispositivo (localStorage). No se sube a Drive ni se comparte.
+              ${geminiKey ? '<span class="badge badge-green" style="margin-left:4px">✓ Configurada</span>' : ''}
+            </p>
+          </div>
+          ${geminiKey ? `
+            <button class="btn btn-secondary btn-sm" id="cfg-gemini-test">🧪 Probar conexión</button>
+            <div id="cfg-gemini-test-result" style="margin-top:var(--space-2);font-size:var(--font-size-sm)"></div>` : ''}
+        </div>
+
         <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-5)">
           <button class="btn btn-secondary btn-full" id="cfg-btn-sync">
             🔄 Sincronizar ahora
@@ -591,6 +621,44 @@ const Configuracion = (() => {
       await Auth.logout();
       await Storage.clear();
       location.reload();
+    });
+
+    // Guardar API key Gemini
+    document.getElementById('cfg-gemini-save')?.addEventListener('click',()=>{
+      const key = document.getElementById('cfg-gemini-key')?.value.trim();
+      if (!key) { UI.showToast('Introduce una API key','error'); return; }
+      if (!key.startsWith('AIza')) { UI.showToast('La API key de Gemini debe empezar por AIza...','error'); return; }
+      Storage.setSync('gemini_api_key', key);
+      UI.showToast('API key guardada en este dispositivo ✓','success');
+      _renderSeccion(); // re-renderiza para mostrar el badge y botón de prueba
+    });
+
+    // Probar conexión Gemini
+    document.getElementById('cfg-gemini-test')?.addEventListener('click', async () => {
+      const key = Storage.getSync('gemini_api_key');
+      const resultEl = document.getElementById('cfg-gemini-test-result');
+      if (resultEl) resultEl.textContent = '⏳ Probando...';
+      try {
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'Di solo: OK' }] }],
+              generationConfig: { maxOutputTokens: 10 },
+            }),
+          }
+        );
+        if (r.ok) {
+          if (resultEl) resultEl.innerHTML = '<span style="color:var(--color-success)">✓ Conexión correcta — Gemini funciona</span>';
+        } else {
+          const err = await r.json().catch(()=>({}));
+          if (resultEl) resultEl.innerHTML = `<span style="color:var(--color-danger)">❌ ${err?.error?.message||'Error desconocido'}</span>`;
+        }
+      } catch(e) {
+        if (resultEl) resultEl.innerHTML = `<span style="color:var(--color-danger)">❌ ${e.message}</span>`;
+      }
     });
   }
 
