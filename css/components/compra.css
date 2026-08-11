@@ -209,3 +209,42 @@
   .compra-super-btn   { flex: 1; min-width: 200px; }
   .compra-item-modo   { padding: var(--space-3) var(--space-4); }
 }
+
+/* ─── Autocomplete sugerencias en añadir extra ───────────────────── */
+.compra-sugg-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.compra-sugg-item:last-child { border-bottom: none; }
+.compra-sugg-item:hover,
+.compra-sugg-item.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+.compra-sugg-nombre {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+.compra-sugg-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ─── Wrapper del suggestions box ───────────────────────────────── */
+.pl-ing-suggestions {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-md);
+  max-height: 240px;
+  overflow-y: auto;
+}
