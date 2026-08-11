@@ -134,22 +134,23 @@ const Platos = (() => {
     const items = platos || [];
 
     const filtered = items.filter(p => {
-      // Lógica de filtro Para:
-      // "Todos" (filtro) → muestra todos los platos
-      // "Adultos" (filtro) → solo platos con tipoMenu que incluya 'mayores' o 'todos'
-      // "Bebé" (filtro) → solo platos con tipoMenu que incluya 'bebe' o 'todos'
+      // Normaliza tipoMenu a Set para comparación robusta (aunque haya duplicados en el JSON)
+      const tipoMenuSet = new Set(p.tipoMenu || ['todos']);
+
       let matchMenu = true;
       if (_filtroTipoMenu === 'mayores') {
-        matchMenu = p.tipoMenu?.includes('mayores') || p.tipoMenu?.includes('todos');
+        matchMenu = tipoMenuSet.has('mayores') || tipoMenuSet.has('todos');
       } else if (_filtroTipoMenu === 'bebe') {
-        matchMenu = p.tipoMenu?.includes('bebe') || p.tipoMenu?.includes('todos');
+        matchMenu = tipoMenuSet.has('bebe') || tipoMenuSet.has('todos');
       }
-      // _filtroTipoMenu === 'todos' → matchMenu = true (ya inicializado)
+      // _filtroTipoMenu === 'todos' → matchMenu = true
 
       const matchPlato  = _filtroTipoPlato === 'todos' || p.tipoPlato === _filtroTipoPlato;
+
+      const tipoComidaSet = new Set(p.tipoComida || ['ambos']);
       const matchComida = _filtroComida === 'todos' ||
-        p.tipoComida?.includes(_filtroComida) ||
-        p.tipoComida?.includes('ambos');
+        tipoComidaSet.has(_filtroComida) || tipoComidaSet.has('ambos');
+
       const matchText = !_filtroTexto ||
         p.nombre.toLowerCase().includes(_filtroTexto) ||
         (p.etiquetas||[]).some(e => e.toLowerCase().includes(_filtroTexto));

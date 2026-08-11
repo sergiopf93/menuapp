@@ -46,17 +46,30 @@ const Menu = (() => {
     _renderVista();
   }
 
-  /** Devuelve el HTML del calendario para usarlo en otros contextos (dashboard) */
+  /** Devuelve el HTML del calendario para usarlo en el dashboard.
+   *  Usa el menuActual del estado si está disponible para evitar llamadas a Drive. */
   async function getCalendarioHTML() {
-    const hoy = Dates.today();
-    const menusEnDrive = await Drive.listMenuFiles().catch(()=>[]);
-    const todosMenus = [];
-    for (const f of menusEnDrive) {
-      try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
+    const state = App.getState();
+    let todosMenus = [];
+
+    // Intenta usar el menú ya cargado en el estado
+    if (state.menuActual) {
+      todosMenus = [state.menuActual];
+    } else {
+      // Va a Drive con timeout de 5s para no colgar el dashboard
+      try {
+        const timeoutPromise = new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')),5000));
+        const drivePromise = Drive.listMenuFiles().catch(()=>[]);
+        const menusEnDrive = await Promise.race([drivePromise, timeoutPromise]).catch(()=>[]);
+        for (const f of menusEnDrive.slice(0,3)) {  // máximo 3 para no tardar
+          try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
+        }
+      } catch { todosMenus = []; }
     }
+
     const diasCombinados = _combinarDiasDeMenus(todosMenus);
     if (!diasCombinados.length) return null;
-    const config = App.getState().config||{};
+    const config = state.config||{};
     const tieneBebe = (config.personas||[]).some(p=>p.tipo==='bebe');
     return _buildCalendario(diasCombinados, tieneBebe);
   }
