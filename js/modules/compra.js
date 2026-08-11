@@ -60,22 +60,48 @@ const Compra = (() => {
     const menuActual = state.menuActual || await _buscarMenuActual();
 
     if (!menuActual) {
+      // Sin menú — permite iniciar lista manual
+      const tieneListaManual = _compraActual && _compraActual.menuId === 'manual';
       view.innerHTML = `
         <div class="module-header">
           <h1 class="module-title">Compra</h1>
         </div>
-        <div class="empty-state">
-          <div class="empty-state-icon">🛒</div>
-          <h2 class="empty-state-title">Sin menú activo</h2>
-          <p class="empty-state-desc">Genera y confirma un menú primero para crear la lista de la compra.</p>
-          <button class="btn btn-primary" onclick="App.navigate('menu')">Ir al generador de menú</button>
-        </div>`;
-      return;
+        ${tieneListaManual ? '' : `
+          <div class="empty-state" style="padding:var(--space-8) 0">
+            <div class="empty-state-icon">🛒</div>
+            <h2 class="empty-state-title">Sin menú activo</h2>
+            <p class="empty-state-desc">Puedes ir al generador de menú, o iniciar una lista manual de artículos.</p>
+            <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;justify-content:center">
+              <button class="btn btn-secondary" onclick="App.navigate('menu')">📅 Generar menú</button>
+              <button class="btn btn-primary" id="compra-btn-manual">🛒 Lista manual</button>
+            </div>
+          </div>`}`;
+
+      if (!tieneListaManual) {
+        document.getElementById('compra-btn-manual')?.addEventListener('click', () => {
+          _compraActual = {
+            id: `compra-${Date.now()}`,
+            menuId: 'manual',
+            fechaCreacion: Dates.today(),
+            supermercadoId: null,
+            items: [],
+            estado: 'pendiente',
+            fechaCierre: null,
+          };
+          App.getState().compraActual = _compraActual;
+          _renderVista(view);
+        });
+        return;
+      }
+      // Si hay lista manual, cae al render normal
     }
 
     // Genera la lista si no hay compra en curso para este menú
-    if (!_compraActual || _compraActual.menuId !== menuActual.id) {
-      _compraActual = await _generarListaCompra(menuActual);
+    if (!_compraActual || (_compraActual.menuId !== (menuActual?.id||'manual'))) {
+      _compraActual = menuActual
+        ? await _generarListaCompra(menuActual)
+        : { id:`compra-${Date.now()}`, menuId:'manual', fechaCreacion:Dates.today(),
+            supermercadoId:null, items:[], estado:'pendiente', fechaCierre:null };
       App.getState().compraActual = _compraActual;
     }
 

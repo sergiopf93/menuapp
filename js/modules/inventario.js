@@ -50,12 +50,17 @@ const Inventario = (() => {
     return `
       <div class="module-header">
         <h1 class="module-title">Despensa</h1>
-        <button class="btn btn-primary btn-sm" id="inv-btn-add">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          Añadir
-        </button>
+        <div style="display:flex;gap:var(--space-2)">
+          <button class="btn btn-danger-outline btn-sm" id="inv-btn-borrar-todo" title="Borrar toda la despensa">
+            🗑 Borrar todo
+          </button>
+          <button class="btn btn-primary btn-sm" id="inv-btn-add">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Añadir
+          </button>
+        </div>
       </div>
 
       <div class="inv-ubicacion-tabs" id="inv-ubicacion-tabs">
@@ -81,6 +86,19 @@ const Inventario = (() => {
 
   function _bindShellEvents() {
     document.getElementById('inv-btn-add')?.addEventListener('click', () => openForm());
+
+    document.getElementById('inv-btn-borrar-todo')?.addEventListener('click', async () => {
+      const inv = App.getState().inventario || [];
+      if (inv.length === 0) { UI.showToast('La despensa ya está vacía','info'); return; }
+      const ok = await UI.confirm(
+        `¿Borrar los <strong>${inv.length} artículos</strong> de la despensa? Esta acción no se puede deshacer.`,
+        'Borrar toda la despensa'
+      );
+      if (!ok) return;
+      await App.setState('inventario', []);
+      UI.showToast('Despensa vaciada','success');
+      _renderList();
+    });
 
     document.getElementById('inv-ubicacion-tabs')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.inv-tab');

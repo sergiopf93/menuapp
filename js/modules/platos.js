@@ -1,34 +1,36 @@
 /**
- * MenuApp — Módulo de Catálogo de Platos (Fase 2 — completo)
+ * MenuApp — Módulo de Catálogo de Platos (Fase 2 + mejoras)
  *
- * Funcionalidades:
- * - Listado con filtros por tipo de menú, tipo de plato, tipo de comida
- * - Búsqueda por nombre y etiquetas
- * - Alta, edición y baja de platos
- * - Asignación de ingredientes del inventario con cantidades
- * - Configuración de notificación previa (texto + horas)
- * - Configuración de frecuencia mínima entre repeticiones
- * - Activar/desactivar plato
+ * Cambios:
+ * - Fix duplicado etiquetas (lectura y renderizado)
+ * - Campo raciones por plato
+ * - Botón "Cargar receta desde link" con Claude API
+ * - Badge plato de prueba (<4 semanas)
+ * - Etiquetas de grupo alimenticio para equilibrio nutricional
  *
  * @module Platos
  */
 
 const Platos = (() => {
 
-  // ── Estado local ─────────────────────────────────────────────────
-  let _filtroTexto  = '';
+  let _filtroTexto     = '';
   let _filtroTipoMenu  = 'todos';
   let _filtroTipoPlato = 'todos';
   let _filtroComida    = 'todos';
 
-  // ── Constantes ───────────────────────────────────────────────────
   const TIPO_MENU  = { todos:'Todos', mayores:'Adultos', bebe:'Bebé' };
   const TIPO_PLATO = { todos:'Todos', unico:'Plato único', primero:'Primero', segundo:'Segundo' };
   const TIPO_COMIDA= { todos:'Todos', comida:'Comida', cena:'Cena', ambos:'Ambos' };
 
+  // Etiquetas de grupo alimenticio para el equilibrio nutricional
+  const ETIQUETAS_GRUPOS = [
+    'verdura','legumbre','pescado-blanco','pescado-azul','carne-ave',
+    'carne-roja','huevo','cereal','pasta','arroz','ensalada',
+  ];
+
   const ETIQUETAS_SUGERIDAS = [
-    'legumbre','pescado','carne','pasta','arroz','verdura','huevo',
-    'sopa','ensalada','guiso','invierno','verano','rápido','bebé',
+    'verdura','legumbre','pescado-blanco','pescado-azul','carne-ave','carne-roja',
+    'huevo','cereal','pasta','arroz','ensalada','sopa','guiso','rápido','bebé',
   ];
 
   // ── API pública ──────────────────────────────────────────────────
@@ -56,7 +58,6 @@ const Platos = (() => {
         </button>
       </div>
 
-      <!-- Búsqueda -->
       <div class="search-bar" style="margin-bottom:var(--space-3)">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -65,7 +66,6 @@ const Platos = (() => {
                value="${UI.escapeHtml(_filtroTexto)}" autocomplete="off"/>
       </div>
 
-      <!-- Filtros -->
       <div class="pl-filtros">
         <div class="pl-filtro-group">
           <span class="pl-filtro-label">Para:</span>
@@ -93,10 +93,7 @@ const Platos = (() => {
         </div>
       </div>
 
-      <!-- Resumen -->
       <div id="pl-summary" class="pl-summary"></div>
-
-      <!-- Lista -->
       <div id="pl-list"></div>
     `;
   }
@@ -147,13 +144,14 @@ const Platos = (() => {
       return matchMenu && matchPlato && matchComida && matchText;
     });
 
-    // Resumen
     if (summary) {
       const activos   = items.filter(p => p.activo !== false).length;
+      const prueba    = items.filter(p => _esPlatoPrueba(p)).length;
       const inactivos = items.filter(p => p.activo === false).length;
       summary.innerHTML = items.length > 0 ? `
         <div class="pl-summary-bar">
           <span class="badge badge-green">${activos} activo${activos!==1?'s':''}</span>
+          ${prueba>0?`<span class="badge badge-orange">🧪 ${prueba} en prueba</span>`:''}
           ${inactivos>0?`<span class="badge badge-gray">${inactivos} inactivo${inactivos!==1?'s':''}</span>`:''}
           <span class="text-muted text-xs" style="margin-left:auto">${filtered.length} mostrado${filtered.length!==1?'s':''}</span>
         </div>` : '';
@@ -163,11 +161,11 @@ const Platos = (() => {
       container.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">🍽️</div>
-          <h2 class="empty-state-title">${_filtroTexto||_filtroTipoMenu!=='todos'||_filtroTipoPlato!=='todos'?'Sin resultados':'Sin platos'}</h2>
+          <h2 class="empty-state-title">${items.length === 0 ? 'Sin platos' : 'Sin resultados'}</h2>
           <p class="empty-state-desc">
             ${items.length === 0
               ? 'Añade tus platos habituales para que el generador pueda crear menús.'
-              : 'Ningún plato coincide con los filtros seleccionados.'}
+              : 'Ningún plato coincide con los filtros.'}
           </p>
           ${items.length === 0 ? `<button class="btn btn-primary" id="pl-empty-add">Añadir primer plato</button>` : ''}
         </div>`;
@@ -182,8 +180,16 @@ const Platos = (() => {
     _bindCardEvents(container);
   }
 
+  function _esPlatoPrueba(plato) {
+    if (!plato.creadoDesdeLink) return false;
+    const semanas = (Date.now() - new Date(plato.actualizadoEn||plato.creadoEn||0)) / (1000*60*60*24*7);
+    return semanas < 4;
+  }
+
   function _buildCard(plato) {
     const inactivo = plato.activo === false;
+    const esPrueba = _esPlatoPrueba(plato);
+
     const tipoMenuLabel = (plato.tipoMenu||[]).map(t => ({
       mayores:'👨 Adultos', bebe:'👶 Bebé', todos:'👨👶 Todos'
     }[t]||t)).join(', ');
@@ -192,12 +198,12 @@ const Platos = (() => {
       comida:'🍽 Comida', cena:'🌙 Cena', ambos:'🍽🌙 Ambos'
     }[t]||t)).join(', ');
 
-    const tipoPlatoLabel = {
-      unico:'Plato único', primero:'Primero', segundo:'Segundo'
-    }[plato.tipoPlato] || plato.tipoPlato;
+    const tipoPlatoLabel = { unico:'Plato único', primero:'Primero', segundo:'Segundo' }[plato.tipoPlato] || plato.tipoPlato;
+    const numIng = (plato.ingredientes||[]).length;
+    const raciones = plato.raciones || null;
 
-    const numIngredientes = (plato.ingredientes||[]).length;
-    const tieneNotif = !!plato.notificacionPrevia;
+    // Etiquetas únicas (fix duplicados)
+    const etiquetasUnicas = [...new Set(plato.etiquetas||[])];
 
     return `
       <div class="pl-card ${inactivo?'pl-card--inactivo':''}" data-id="${plato.id}">
@@ -205,9 +211,9 @@ const Platos = (() => {
           <div class="pl-card-titulo">
             <span class="pl-card-nombre">${UI.escapeHtml(plato.nombre)}</span>
             ${inactivo?'<span class="badge badge-gray">Inactivo</span>':''}
+            ${esPrueba?'<span class="badge badge-orange">🧪 Prueba</span>':''}
           </div>
-          <button class="pl-toggle-btn" data-id="${plato.id}"
-                  title="${inactivo?'Activar plato':'Desactivar plato'}">
+          <button class="pl-toggle-btn" data-id="${plato.id}">
             <div class="pl-toggle ${inactivo?'':'pl-toggle--on'}"></div>
           </button>
         </div>
@@ -216,28 +222,30 @@ const Platos = (() => {
           <span class="badge badge-blue">${tipoPlatoLabel}</span>
           <span class="badge badge-gray">${tipoMenuLabel}</span>
           <span class="badge badge-gray">${tipoComidaLabel}</span>
+          ${raciones?`<span class="badge badge-gray">🍽 ${raciones} raciones</span>`:''}
           ${plato.frecuenciaMinSemanas?`<span class="badge badge-gray">↻ cada ${plato.frecuenciaMinSemanas}sem</span>`:''}
           ${plato.permiteRepeticion?`<span class="badge badge-green">↻ repite</span>`:''}
           ${plato.diasSobras?`<span class="badge badge-blue">🍲 ${plato.diasSobras}d sobras</span>`:''}
-          ${plato.preparacionFacil?`<span class="badge badge-green">⚡ Fácil</span>`:''}        </div>
+          ${plato.preparacionFacil?`<span class="badge badge-green">⚡ Fácil</span>`:''}
+        </div>
 
-        ${(plato.etiquetas||[]).length>0?`
+        ${etiquetasUnicas.length>0?`
           <div class="pl-card-etiquetas">
-            ${[...new Set(plato.etiquetas||[])].map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}
+            ${etiquetasUnicas.map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}
           </div>`:''}
 
         <div class="pl-card-meta">
-          ${numIngredientes>0?`<span class="pl-meta-item">🥕 ${numIngredientes} ingrediente${numIngredientes!==1?'s':''}</span>`:''}
-          ${tieneNotif?`<span class="pl-meta-item">🔔 ${plato.horasNotificacionPrevia||24}h antes</span>`:''}
-          ${plato.notificacionPrevia?`<span class="pl-meta-notif">"${UI.escapeHtml(plato.notificacionPrevia)}"</span>`:''}
+          ${numIng>0?`<span class="pl-meta-item">🥕 ${numIng} ingrediente${numIng!==1?'s':''}</span>`:''}
+          ${plato.notificacionPrevia?`<span class="pl-meta-item">🔔 ${plato.horasNotificacionPrevia||24}h antes</span>`:''}
+          ${plato.linkReceta?`<a href="${UI.escapeHtml(plato.linkReceta)}" target="_blank" class="pl-meta-item btn-text" style="font-size:var(--font-size-xs)">🎬 Ver receta</a>`:''}
         </div>
 
         <div class="inv-card-actions">
-          <button class="inv-action-btn pl-action-edit" data-id="${plato.id}" title="Editar">
+          <button class="inv-action-btn pl-action-edit" data-id="${plato.id}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Editar
           </button>
-          <button class="inv-action-btn inv-action-delete" data-id="${plato.id}" title="Eliminar">
+          <button class="inv-action-btn inv-action-delete" data-id="${plato.id}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             Eliminar
           </button>
@@ -265,7 +273,6 @@ const Platos = (() => {
     platos[idx] = {...platos[idx], activo: platos[idx].activo===false ? true : false,
                    actualizadoEn: new Date().toISOString()};
     await App.setState('platos', platos);
-    return true;
     UI.showToast(platos[idx].activo!==false?`${platos[idx].nombre} activado`:`${platos[idx].nombre} desactivado`,'info');
     _renderList();
   }
@@ -280,7 +287,6 @@ const Platos = (() => {
     if (!ok) return;
     const platos = (state.platos||[]).filter(p => p.id!==id);
     await App.setState('platos', platos);
-    return true;
     UI.showToast(`${plato.nombre} eliminado`,'success');
     _renderList();
   }
@@ -305,27 +311,50 @@ const Platos = (() => {
         }},
       ],
     });
-    setTimeout(()=>_initFormEvents(catalogo),50);
+    setTimeout(()=>_initFormEvents(catalogo, container),50);
   }
 
-  function _buildForm(plato, inventario) {
-    const tieneNotif = !!plato?.notificacionPrevia;
-    const ingredientes = plato?.ingredientes||[];
-
-    // Opciones de tipoMenu (multi-select visual)
-    const tiposMenu = ['mayores','bebe','todos'];
+  function _buildForm(plato, catalogo) {
+    const tiposMenu  = ['mayores','bebe','todos'];
     const tiposPlato = ['unico','primero','segundo'];
-    const tiposComida = ['comida','cena','ambos'];
+    const tiposComida= ['comida','cena','ambos'];
+    const tieneNotif = !!plato?.notificacionPrevia;
+    const ingredientes= plato?.ingredientes||[];
+    // Etiquetas únicas al cargar el formulario
+    const etiquetasIniciales = [...new Set(plato?.etiquetas||[])];
 
     return `
+      <!-- Cargar desde link -->
+      <div class="form-group">
+        <button type="button" class="btn btn-secondary btn-full" id="pl-btn-link-receta">
+          🎬 Cargar receta desde link (YouTube / Instagram / web)
+        </button>
+        <div id="pl-link-block" class="hidden" style="margin-top:var(--space-3)">
+          <div style="display:flex;gap:var(--space-2)">
+            <input class="form-control" id="pl-link-input" type="url" placeholder="https://..."/>
+            <button type="button" class="btn btn-primary" id="pl-link-analizar" style="flex-shrink:0">Analizar</button>
+          </div>
+          <p class="form-hint">La IA extraerá los ingredientes y datos del plato automáticamente.</p>
+          <div id="pl-link-status" class="hidden"></div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-3) 0"/>
+
       <!-- Nombre -->
       <div class="form-group">
         <label class="form-label" for="pl-f-nombre">Nombre del plato <span class="required">*</span></label>
         <input class="form-control" id="pl-f-nombre" type="text"
-               value="${UI.escapeHtml(plato?.nombre||'')}" placeholder="Ej: Cocido madrileño, Merluza al horno..." autocomplete="off"/>
+               value="${UI.escapeHtml(plato?.nombre||'')}" placeholder="Ej: Cocido madrileño..." autocomplete="off"/>
       </div>
 
-      <!-- Tipo menú -->
+      <!-- Link receta guardado -->
+      <div class="form-group" id="pl-link-guardado-block" style="${plato?.linkReceta?'':'display:none'}">
+        <label class="form-label">Link de la receta</label>
+        <input class="form-control" id="pl-f-link" type="url" value="${UI.escapeHtml(plato?.linkReceta||'')}"/>
+      </div>
+
+      <!-- Para quién -->
       <div class="form-group">
         <label class="form-label">Para quién <span class="required">*</span></label>
         <div class="pl-chips pl-chips--form">
@@ -334,7 +363,6 @@ const Platos = (() => {
               ${{mayores:'👨 Adultos',bebe:'👶 Bebé',todos:'👨👶 Todos'}[t]}
             </button>`).join('')}
         </div>
-        <p class="form-hint">Puedes seleccionar varios. "Todos" incluye adultos y bebés.</p>
       </div>
 
       <!-- Tipo plato -->
@@ -348,7 +376,7 @@ const Platos = (() => {
         </div>
       </div>
 
-      <!-- Tipo comida -->
+      <!-- Momento -->
       <div class="form-group">
         <label class="form-label">Momento <span class="required">*</span></label>
         <div class="pl-chips pl-chips--form">
@@ -359,28 +387,33 @@ const Platos = (() => {
         </div>
       </div>
 
-      <!-- Repetición en semana -->
+      <!-- Raciones -->
+      <div class="form-group">
+        <label class="form-label" for="pl-f-raciones">Raciones que sale la receta</label>
+        <input class="form-control" id="pl-f-raciones" type="number" min="1" max="20"
+               value="${plato?.raciones||2}" placeholder="2"/>
+        <p class="form-hint">Cuántas raciones produce. Se usa para calcular cantidades de compra y sobras.</p>
+      </div>
+
+      <!-- Opciones de repetición y sobras -->
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="pl-f-repetir" ${plato?.permiteRepeticion?'checked':''}/>
           <span class="form-label" style="margin:0">Puede repetirse en la misma semana</span>
         </label>
-        <p class="form-hint">Actívalo para guarniciones y verduras habituales (ensalada, brócoli, judías verdes...).</p>
+        <p class="form-hint">Actívalo para verduras habituales (ensalada, brócoli...).</p>
       </div>
 
-      <!-- Sobras para bebé -->
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="pl-f-sobras-cb" ${plato?.diasSobras?'checked':''}/>
-          <span class="form-label" style="margin:0">Se cocinan raciones de más (sobras para bebé)</span>
+          <span class="form-label" style="margin:0">🍲 Se cocinan raciones de más (sobras para bebé)</span>
         </label>
-        <p class="form-hint">Cocido, puchero, potajes... que dan para varios días del bebé.</p>
       </div>
       <div class="form-group" id="pl-f-sobras-block" style="${plato?.diasSobras?'':'display:none'}">
         <label class="form-label" for="pl-f-sobras-dias">Días extra que cubre para el bebé</label>
         <input class="form-control" id="pl-f-sobras-dias" type="number" min="1" max="6"
                value="${plato?.diasSobras||2}"/>
-        <p class="form-hint">Ej: 2 = además del día que se cocina, el bebé come ese plato 2 días más.</p>
       </div>
 
       <!-- Preparación fácil -->
@@ -389,15 +422,14 @@ const Platos = (() => {
           <input type="checkbox" id="pl-f-facil" ${plato?.preparacionFacil?'checked':''}/>
           <span class="form-label" style="margin:0">⚡ Preparación fácil</span>
         </label>
-        <p class="form-hint">Ensaladas, tortillas, bocadillos, platos de despensa... El generador los prioriza en días fáciles.</p>
+        <p class="form-hint">Ensaladas, tortillas, bocadillos... El generador los prioriza en días fáciles.</p>
       </div>
 
       <!-- Frecuencia -->
       <div class="form-group">
         <label class="form-label" for="pl-f-freq">Semanas mínimas entre repeticiones</label>
         <input class="form-control" id="pl-f-freq" type="number" min="1" max="12"
-               value="${plato?.frecuenciaMinSemanas||2}" placeholder="2"/>
-        <p class="form-hint">El generador no repetirá este plato antes de N semanas.</p>
+               value="${plato?.frecuenciaMinSemanas||2}"/>
       </div>
 
       <!-- Notificación previa -->
@@ -406,12 +438,9 @@ const Platos = (() => {
           <input type="checkbox" id="pl-f-notif-cb" ${tieneNotif?'checked':''}/>
           <span class="form-label" style="margin:0">Requiere preparación previa</span>
         </label>
-        <p class="form-hint">Ej: garbanzos en remojo, masa de pan, sacar del congelador...</p>
       </div>
-
       <div id="pl-f-notif-block" style="${tieneNotif?'':'display:none'}">
         <div class="form-group">
-          <label class="form-label" for="pl-f-notif-texto">Mensaje de notificación</label>
           <input class="form-control" id="pl-f-notif-texto" type="text"
                  value="${UI.escapeHtml(plato?.notificacionPrevia||'')}"
                  placeholder="Ej: Poner garbanzos en remojo esta noche"/>
@@ -425,12 +454,13 @@ const Platos = (() => {
 
       <!-- Etiquetas -->
       <div class="form-group">
-        <label class="form-label">Etiquetas</label>
+        <label class="form-label">Etiquetas (grupo alimenticio y características)</label>
         <div class="pl-etiquetas-editor">
           <div id="pl-f-etiquetas-selected" class="pl-etiquetas-selected">
-            ${(plato?.etiquetas||[]).map(e=>`
-              <span class="pl-etiqueta pl-etiqueta--editable" data-e="${UI.escapeHtml(e)}">
-                ${UI.escapeHtml(e)} <button class="pl-etiqueta-rm" data-e="${UI.escapeHtml(e)}">×</button>
+            ${etiquetasIniciales.map(e=>`
+              <span class="pl-etiqueta pl-etiqueta--editable" data-etiqueta="${UI.escapeHtml(e)}">
+                ${UI.escapeHtml(e)}
+                <button type="button" class="pl-etiqueta-rm" data-rm="${UI.escapeHtml(e)}">×</button>
               </span>`).join('')}
           </div>
           <div class="pl-etiquetas-sugeridas">
@@ -442,41 +472,29 @@ const Platos = (() => {
 
       <!-- Ingredientes -->
       <div class="form-group">
-        <label class="form-label">Ingredientes del inventario</label>
+        <label class="form-label">Ingredientes del catálogo</label>
         <div id="pl-f-ingredientes">
-          ${ingredientes.map((ing,i) => _buildIngredienteRow(ing, i, inventario)).join('')}
+          ${ingredientes.map((ing,i) => _buildIngredienteRow(ing, i, catalogo)).join('')}
         </div>
         <button type="button" class="btn btn-secondary btn-sm mt-2" id="pl-f-add-ing">
           + Añadir ingrediente
         </button>
-        <p class="form-hint">Opcional. Usa el catálogo de artículos para calcular la lista de la compra automáticamente.</p>
+        <p class="form-hint">Permite calcular la lista de la compra y las cantidades según raciones.</p>
       </div>
 
       <!-- Activo -->
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="pl-f-activo" ${plato?.activo!==false?'checked':''}/>
-          <span class="form-label" style="margin:0">Plato activo (disponible para generar menús)</span>
+          <span class="form-label" style="margin:0">Plato activo</span>
         </label>
       </div>
     `;
   }
 
-  /**
-   * Construye una fila de ingrediente con buscador libre.
-   * El ingrediente tiene: nombre (texto libre), categoria, cantidad, unidad.
-   * Si el nombre coincide con un artículo del inventario, se vincula automáticamente
-   * al generar la lista de compra. Si no existe, se crea como artículo nuevo al comprar.
-   */
-  function _buildIngredienteRow(ing, idx, inventario) {
-    // Nombre: si viene de versión antigua con articuloId, resolvemos el nombre
+  function _buildIngredienteRow(ing, idx, catalogo) {
     let nombreVal = ing?.nombre || '';
-    if (!nombreVal && ing?.articuloId && inventario) {
-      const art = inventario.find(a => a.id === ing.articuloId);
-      if (art) nombreVal = art.nombre;
-    }
     const categoriaVal = ing?.categoria || '';
-
     return `
       <div class="pl-ing-row" data-idx="${idx}">
         <div style="flex:3;position:relative">
@@ -498,153 +516,276 @@ const Platos = (() => {
       </div>`;
   }
 
-  function _initFormEvents(inventario) {
-    // Toggle notificación
-    const notifCb = document.getElementById('pl-f-notif-cb');
-    const notifBlock = document.getElementById('pl-f-notif-block');
-    notifCb?.addEventListener('change', () => {
-      if (notifBlock) notifBlock.style.display = notifCb.checked ? '' : 'none';
-    });
+  function _initFormEvents(catalogo, container) {
+    // Toggle notif
+    const notifCb=document.getElementById('pl-f-notif-cb');
+    const notifBlock=document.getElementById('pl-f-notif-block');
+    notifCb?.addEventListener('change',()=>{ if(notifBlock) notifBlock.style.display=notifCb.checked?'':'none'; });
 
-    const sobrasCb = document.getElementById('pl-f-sobras-cb');
-    const sobrasBlock = document.getElementById('pl-f-sobras-block');
-    sobrasCb?.addEventListener('change', () => {
-      if (sobrasBlock) sobrasBlock.style.display = sobrasCb.checked ? '' : 'none';
-    });
+    // Toggle sobras
+    const sobrasCb=document.getElementById('pl-f-sobras-cb');
+    const sobrasBlock=document.getElementById('pl-f-sobras-block');
+    sobrasCb?.addEventListener('change',()=>{ if(sobrasBlock) sobrasBlock.style.display=sobrasCb.checked?'':'none'; });
 
-    // Chips tipo menú (multi-select, excepto "todos" que es exclusivo)
-    document.querySelectorAll('.pl-chip-tipomenu').forEach(chip => {
-      chip.addEventListener('click', () => {
-        if (chip.dataset.val === 'todos') {
-          document.querySelectorAll('.pl-chip-tipomenu').forEach(c => c.classList.remove('active'));
+    // Chips tipoMenu
+    container.querySelectorAll('.pl-chip-tipomenu').forEach(chip=>{
+      chip.addEventListener('click',()=>{
+        if(chip.dataset.val==='todos'){
+          container.querySelectorAll('.pl-chip-tipomenu').forEach(c=>c.classList.remove('active'));
           chip.classList.add('active');
         } else {
-          document.querySelector('.pl-chip-tipomenu[data-val="todos"]')?.classList.remove('active');
+          container.querySelector('.pl-chip-tipomenu[data-val="todos"]')?.classList.remove('active');
           chip.classList.toggle('active');
-          if (!document.querySelector('.pl-chip-tipomenu.active')) chip.classList.add('active');
+          if(!container.querySelector('.pl-chip-tipomenu.active')) chip.classList.add('active');
         }
       });
     });
 
-    // Chips tipo plato (single-select)
-    document.querySelectorAll('.pl-chip-tipoplato').forEach(chip => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.pl-chip-tipoplato').forEach(c => c.classList.remove('active'));
+    // Chips tipoPlato y tipoComida (single select)
+    container.querySelectorAll('.pl-chip-tipoplato').forEach(chip=>{
+      chip.addEventListener('click',()=>{
+        container.querySelectorAll('.pl-chip-tipoplato').forEach(c=>c.classList.remove('active'));
+        chip.classList.add('active');
+      });
+    });
+    container.querySelectorAll('.pl-chip-tipocomida').forEach(chip=>{
+      chip.addEventListener('click',()=>{
+        container.querySelectorAll('.pl-chip-tipocomida').forEach(c=>c.classList.remove('active'));
         chip.classList.add('active');
       });
     });
 
-    // Chips tipo comida (single-select)
-    document.querySelectorAll('.pl-chip-tipocomida').forEach(chip => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.pl-chip-tipocomida').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-      });
+    // Etiquetas sugeridas — usar delegación en el contenedor
+    container.querySelector('.pl-etiquetas-sugeridas')?.addEventListener('click',(e)=>{
+      const btn=e.target.closest('.pl-etiqueta-sug');
+      if(btn) _addEtiqueta(btn.dataset.e, container);
     });
 
-    // Etiquetas sugeridas
-    document.querySelectorAll('.pl-etiqueta-sug').forEach(btn => {
-      btn.addEventListener('click', () => _addEtiqueta(btn.dataset.e));
-    });
-
-    // Eliminar etiqueta
-    document.getElementById('pl-f-etiquetas-selected')?.addEventListener('click', (e) => {
-      const rm = e.target.closest('.pl-etiqueta-rm');
-      if (rm) _removeEtiqueta(rm.dataset.e);
+    // Eliminar etiqueta — delegación
+    container.querySelector('#pl-f-etiquetas-selected')?.addEventListener('click',(e)=>{
+      const rm=e.target.closest('.pl-etiqueta-rm');
+      if(rm) rm.closest('.pl-etiqueta--editable')?.remove();
     });
 
     // Ingredientes
-    document.getElementById('pl-f-add-ing')?.addEventListener('click', () => {
-      const container = document.getElementById('pl-f-ingredientes');
-      const idx = container.querySelectorAll('.pl-ing-row').length;
-      const wrapper = document.createElement('div');
-      wrapper.innerHTML = _buildIngredienteRow(null, idx, inventario);
-      container.appendChild(wrapper.firstElementChild);
-      _bindIngRemove();
-      _bindIngAutocomplete(inventario);
-      // Foco en el nuevo campo
-      container.querySelector(`.pl-ing-row:last-child .pl-ing-nombre`)?.focus();
+    container.querySelector('#pl-f-add-ing')?.addEventListener('click',()=>{
+      const ingContainer=document.getElementById('pl-f-ingredientes');
+      const idx=ingContainer.querySelectorAll('.pl-ing-row').length;
+      const wrapper=document.createElement('div');
+      wrapper.innerHTML=_buildIngredienteRow(null,idx,catalogo);
+      ingContainer.appendChild(wrapper.firstElementChild);
+      _bindIngRemove(ingContainer);
+      _bindIngAutocomplete(ingContainer, catalogo);
+      ingContainer.querySelector('.pl-ing-row:last-child .pl-ing-nombre')?.focus();
     });
 
-    _bindIngRemove();
-    _bindIngAutocomplete(inventario);
+    const ingContainer=document.getElementById('pl-f-ingredientes');
+    if(ingContainer){
+      _bindIngRemove(ingContainer);
+      _bindIngAutocomplete(ingContainer, catalogo);
+    }
+
+    // Botón cargar desde link
+    document.getElementById('pl-btn-link-receta')?.addEventListener('click',()=>{
+      const block=document.getElementById('pl-link-block');
+      block?.classList.toggle('hidden');
+    });
+    document.getElementById('pl-link-analizar')?.addEventListener('click',()=>_analizarLinkReceta(container));
   }
 
-  function _bindIngRemove() {
-    document.querySelectorAll('.pl-ing-rm').forEach(btn => {
-      btn.onclick = () => btn.closest('.pl-ing-row').remove();
+  function _addEtiqueta(etiqueta, container) {
+    const sel = container.querySelector('#pl-f-etiquetas-selected');
+    if(!sel) return;
+    // Evita duplicados comprobando data-etiqueta
+    if(sel.querySelector(`[data-etiqueta="${etiqueta}"]`)) return;
+    const span=document.createElement('span');
+    span.className='pl-etiqueta pl-etiqueta--editable';
+    span.dataset.etiqueta=etiqueta;
+    span.innerHTML=`${UI.escapeHtml(etiqueta)}<button type="button" class="pl-etiqueta-rm" data-rm="${UI.escapeHtml(etiqueta)}">×</button>`;
+    sel.appendChild(span);
+  }
+
+  function _bindIngRemove(container) {
+    container.querySelectorAll('.pl-ing-rm').forEach(btn=>{
+      btn.onclick=()=>btn.closest('.pl-ing-row').remove();
     });
   }
 
-  /**
-   * Vincula el autocomplete de nombre de ingrediente a todos los campos actuales.
-   * Sugiere nombres del inventario pero permite escribir cualquier cosa.
-   * Al seleccionar un artículo del inventario, rellena también la categoría.
-   */
-  function _bindIngAutocomplete(inventario) {
-    document.querySelectorAll('.pl-ing-nombre').forEach(input => {
-      const row  = input.closest('.pl-ing-row');
-      const idx  = row?.dataset.idx;
-      const sugg = document.getElementById(`pl-ing-sugg-${idx}`);
-      if (!sugg) return;
-
-      input.addEventListener('input', () => {
-        const val = input.value.toLowerCase().trim();
-        if (!val || !inventario?.length) { sugg.classList.add('hidden'); return; }
-        const matches = inventario.filter(a => a.nombre.toLowerCase().includes(val)).slice(0, 6);
-        if (!matches.length) { sugg.classList.add('hidden'); return; }
-        sugg.innerHTML = matches.map(a =>
-          `<div class="categoria-option" data-nombre="${UI.escapeHtml(a.nombre)}" data-cat="${UI.escapeHtml(a.categoria||'')}">
+  function _bindIngAutocomplete(container, catalogo) {
+    container.querySelectorAll('.pl-ing-nombre').forEach(input=>{
+      if(input._autocomplete) return; // ya vinculado
+      input._autocomplete = true;
+      const row=input.closest('.pl-ing-row');
+      const idx=row?.dataset.idx;
+      const sugg=document.getElementById(`pl-ing-sugg-${idx}`);
+      if(!sugg) return;
+      input.addEventListener('input',()=>{
+        const val=input.value.toLowerCase().trim();
+        if(!val||!catalogo?.length){ sugg.classList.add('hidden'); return; }
+        const matches=catalogo.filter(a=>a.nombre.toLowerCase().includes(val)).slice(0,6);
+        if(!matches.length){ sugg.classList.add('hidden'); return; }
+        sugg.innerHTML=matches.map(a=>`
+          <div class="categoria-option" data-nombre="${UI.escapeHtml(a.nombre)}" data-cat="${UI.escapeHtml(a.categoria||'')}">
             ${UI.escapeHtml(a.nombre)} <span style="color:var(--color-text-muted);font-size:11px">${UI.escapeHtml(a.categoria||'')}</span>
-           </div>`
-        ).join('');
+          </div>`).join('');
         sugg.classList.remove('hidden');
-        sugg.querySelectorAll('.categoria-option').forEach(opt => {
-          opt.addEventListener('click', () => {
-            input.value = opt.dataset.nombre;
-            // Rellena categoría automáticamente
-            const catInput = row?.querySelector('.pl-ing-cat');
-            if (catInput && opt.dataset.cat) catInput.value = opt.dataset.cat;
+        sugg.querySelectorAll('.categoria-option').forEach(opt=>{
+          opt.addEventListener('click',()=>{
+            input.value=opt.dataset.nombre;
+            const catInput=row?.querySelector('.pl-ing-cat');
+            if(catInput&&opt.dataset.cat) catInput.value=opt.dataset.cat;
             sugg.classList.add('hidden');
           });
         });
       });
-
-      document.addEventListener('click', (e) => {
-        if (!input.contains(e.target) && !sugg.contains(e.target)) sugg.classList.add('hidden');
-      });
     });
   }
 
-  function _addEtiqueta(etiqueta) {
-    const container = document.getElementById('pl-f-etiquetas-selected');
-    if (!container) return;
-    if (container.querySelector(`[data-e="${etiqueta}"]`)) return; // ya existe
-    const span = document.createElement('span');
-    span.className = 'pl-etiqueta pl-etiqueta--editable';
-    span.dataset.e = etiqueta;
-    span.innerHTML = `${UI.escapeHtml(etiqueta)} <button class="pl-etiqueta-rm" data-e="${UI.escapeHtml(etiqueta)}">×</button>`;
-    container.appendChild(span);
+  // ── Cargar receta desde link con Claude API ──────────────────────
+
+  async function _analizarLinkReceta(formContainer) {
+    const link = document.getElementById('pl-link-input')?.value.trim();
+    if (!link) { UI.showToast('Introduce un link válido','error'); return; }
+
+    const statusEl = document.getElementById('pl-link-status');
+    const btn = document.getElementById('pl-link-analizar');
+    if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con IA...'; }
+    if(btn) btn.disabled = true;
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: [{
+            role: 'user',
+            content: `Analiza esta receta del link: ${link}
+
+Devuelve SOLO un JSON con esta estructura exacta (sin markdown, sin texto adicional):
+{
+  "nombre": "nombre del plato",
+  "raciones": 4,
+  "tipoPlato": "unico",
+  "tipoComida": ["comida"],
+  "tipoMenu": ["todos"],
+  "ingredientes": [
+    {"nombre": "nombre ingrediente", "cantidad": 2, "unidad": "UN", "categoria": "Frutas y verduras"}
+  ],
+  "etiquetas": ["verdura", "pescado-blanco"],
+  "preparacionFacil": false,
+  "notificacionPrevia": null
+}
+
+Reglas:
+- tipoPlato: "unico", "primero" o "segundo"
+- tipoComida: array con "comida", "cena" o "ambos"
+- tipoMenu: array con "mayores", "bebe" o "todos"
+- etiquetas: usa solo estos valores si aplican: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada
+- unidad: UN, KG, GR, L, ML, PAQ
+- categoria: una de las secciones del supermercado (Frutas y verduras, Carnicería, Pescadería, Lácteos, etc.)`
+          }]
+        })
+      });
+
+      const data = await response.json();
+      const textBlock = data.content?.find(c => c.type === 'text');
+      if (!textBlock?.text) throw new Error('Sin respuesta de la IA');
+
+      let jsonStr = textBlock.text.trim();
+      jsonStr = jsonStr.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+      const receta = JSON.parse(jsonStr);
+
+      // Rellena el formulario con los datos extraídos
+      _rellenarFormConReceta(receta, link, formContainer);
+
+      if(statusEl){ statusEl.textContent='✓ Receta cargada correctamente'; statusEl.className='status-ok'; }
+      document.getElementById('pl-link-block')?.classList.add('hidden');
+
+      // Muestra el campo de link guardado
+      const linkGuardado = document.getElementById('pl-link-guardado-block');
+      const linkInput = document.getElementById('pl-f-link');
+      if(linkGuardado) linkGuardado.style.display='';
+      if(linkInput) linkInput.value = link;
+
+    } catch(err) {
+      console.error('[Platos] Error analizando link:', err);
+      if(statusEl){ statusEl.textContent=`Error: ${err.message}. Rellena los datos manualmente.`; statusEl.className='status-error'; }
+    } finally {
+      if(btn) btn.disabled = false;
+    }
   }
 
-  function _removeEtiqueta(etiqueta) {
-    document.querySelector(`#pl-f-etiquetas-selected [data-e="${etiqueta}"]`)?.remove();
+  function _rellenarFormConReceta(receta, link, formContainer) {
+    // Nombre
+    const nombreEl = document.getElementById('pl-f-nombre');
+    if(nombreEl && receta.nombre) nombreEl.value = receta.nombre;
+
+    // Raciones
+    const racionesEl = document.getElementById('pl-f-raciones');
+    if(racionesEl && receta.raciones) racionesEl.value = receta.raciones;
+
+    // tipoMenu chips
+    if(receta.tipoMenu?.length){
+      formContainer.querySelectorAll('.pl-chip-tipomenu').forEach(c=>c.classList.remove('active'));
+      receta.tipoMenu.forEach(v=>{
+        formContainer.querySelector(`.pl-chip-tipomenu[data-val="${v}"]`)?.classList.add('active');
+      });
+    }
+
+    // tipoPlato chip
+    if(receta.tipoPlato){
+      formContainer.querySelectorAll('.pl-chip-tipoplato').forEach(c=>c.classList.remove('active'));
+      formContainer.querySelector(`.pl-chip-tipoplato[data-val="${receta.tipoPlato}"]`)?.classList.add('active');
+    }
+
+    // tipoComida chip
+    const momentoVal = Array.isArray(receta.tipoComida) ? receta.tipoComida[0] : receta.tipoComida;
+    if(momentoVal){
+      formContainer.querySelectorAll('.pl-chip-tipocomida').forEach(c=>c.classList.remove('active'));
+      formContainer.querySelector(`.pl-chip-tipocomida[data-val="${momentoVal}"]`)?.classList.add('active');
+    }
+
+    // preparacionFacil
+    const facilEl = document.getElementById('pl-f-facil');
+    if(facilEl) facilEl.checked = !!receta.preparacionFacil;
+
+    // Etiquetas
+    const etiquetasSel = document.getElementById('pl-f-etiquetas-selected');
+    if(etiquetasSel && receta.etiquetas?.length){
+      etiquetasSel.innerHTML = '';
+      [...new Set(receta.etiquetas)].forEach(e => _addEtiqueta(e, formContainer));
+    }
+
+    // Ingredientes
+    const ingContainer = document.getElementById('pl-f-ingredientes');
+    if(ingContainer && receta.ingredientes?.length){
+      ingContainer.innerHTML = '';
+      const catalogo = Articulos.getCatalogo();
+      receta.ingredientes.forEach((ing,i)=>{
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = _buildIngredienteRow(ing, i, catalogo);
+        ingContainer.appendChild(wrapper.firstElementChild);
+      });
+      _bindIngRemove(ingContainer);
+      _bindIngAutocomplete(ingContainer, catalogo);
+    }
   }
+
+  // ── Submit ───────────────────────────────────────────────────────
 
   async function _submitForm(platoOriginal) {
     const nombre = document.getElementById('pl-f-nombre')?.value.trim();
     if (!nombre) { UI.showToast('El nombre es obligatorio','error'); return false; }
 
-    // tipoMenu
     const tipoMenu = [...document.querySelectorAll('.pl-chip-tipomenu.active')].map(c=>c.dataset.val);
     if (!tipoMenu.length) { UI.showToast('Selecciona para quién es el plato','error'); return false; }
 
-    // tipoPlato
-    const tipoPlato = document.querySelector('.pl-chip-tipoplato.active')?.dataset.val || 'unico';
-
-    // tipoComida
+    const tipoPlato  = document.querySelector('.pl-chip-tipoplato.active')?.dataset.val || 'unico';
     const tipoComida = [document.querySelector('.pl-chip-tipocomida.active')?.dataset.val || 'ambos'];
-
+    const raciones   = parseInt(document.getElementById('pl-f-raciones')?.value)||2;
     const frecuencia = parseInt(document.getElementById('pl-f-freq')?.value)||2;
     const repetir    = document.getElementById('pl-f-repetir')?.checked || false;
     const facil      = document.getElementById('pl-f-facil')?.checked || false;
@@ -654,47 +795,51 @@ const Platos = (() => {
     const notifTexto = document.getElementById('pl-f-notif-texto')?.value.trim()||null;
     const notifHoras = parseInt(document.getElementById('pl-f-notif-horas')?.value)||16;
     const activo     = document.getElementById('pl-f-activo')?.checked !== false;
+    const linkReceta = document.getElementById('pl-f-link')?.value.trim()||null;
 
-    // Etiquetas
-    const etiquetas = [...document.querySelectorAll('#pl-f-etiquetas-selected [data-e]')]
-      .map(el => el.dataset.e).filter(Boolean);
+    // Etiquetas únicas — lee data-etiqueta del span, no data-e del botón de eliminar
+    const etiquetas = [...new Set(
+      [...document.querySelectorAll('#pl-f-etiquetas-selected .pl-etiqueta--editable')]
+        .map(el => el.dataset.etiqueta).filter(Boolean)
+    )];
 
-    // Ingredientes — nombre libre + categoría + cantidad + unidad
+    // Ingredientes
     const ingredientes = [];
     document.querySelectorAll('#pl-f-ingredientes .pl-ing-row').forEach(row => {
-      const nombre   = row.querySelector('[data-field="nombre"]')?.value.trim();
-      const categoria= row.querySelector('[data-field="categoria"]')?.value.trim()||'Otros';
-      const cantidad = parseFloat(row.querySelector('[data-field="cantidad"]')?.value);
-      const unidad   = row.querySelector('[data-field="unidad"]')?.value;
-      if (nombre) {
-        ingredientes.push({ nombre, categoria, cantidad: isNaN(cantidad)?1:cantidad, unidad });
-      }
+      const nom = row.querySelector('[data-field="nombre"]')?.value.trim();
+      const cat = row.querySelector('[data-field="categoria"]')?.value.trim()||'Otros';
+      const qty = parseFloat(row.querySelector('[data-field="cantidad"]')?.value);
+      const uni = row.querySelector('[data-field="unidad"]')?.value;
+      if (nom) ingredientes.push({ nombre:nom, categoria:cat, cantidad:isNaN(qty)?1:qty, unidad:uni });
     });
 
     const state = App.getState();
     const platos = [...(state.platos||[])];
-    const ahora = new Date().toISOString();
+    const ahora  = new Date().toISOString();
 
     const datos = {
-      nombre, tipoMenu, tipoPlato, tipoComida,
+      nombre, tipoMenu, tipoPlato, tipoComida, raciones,
       frecuenciaMinSemanas: frecuencia,
       permiteRepeticion: repetir,
       preparacionFacil: facil,
       diasSobras: diasSobras || 0,
       notificacionPrevia: notifCb ? notifTexto : null,
       horasNotificacionPrevia: notifCb ? notifHoras : null,
+      linkReceta,
+      creadoDesdeLink: linkReceta ? (platoOriginal?.creadoDesdeLink || ahora) : null,
       etiquetas, ingredientes, activo,
       actualizadoEn: ahora,
     };
 
     if (platoOriginal) {
       const idx = platos.findIndex(p => p.id===platoOriginal.id);
-      if (idx===-1) return;
+      if (idx===-1) return false;
       platos[idx] = {...platos[idx], ...datos};
       UI.showToast(`${nombre} actualizado`,'success');
     } else {
       platos.push({
         id:`plato-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        creadoEn: ahora,
         ...datos,
       });
       UI.showToast(`${nombre} añadido al catálogo`,'success');
@@ -702,15 +847,14 @@ const Platos = (() => {
 
     await App.setState('platos', platos);
     return true;
-    _renderList();
   }
 
-  // ── Utils ────────────────────────────────────────────────────────
+  function _renderList_after_submit() { _renderList(); }
 
   function _ensureView() {
     if (!document.getElementById('view-platos')) {
-      const v = document.createElement('div');
-      v.id = 'view-platos'; v.className = 'view';
+      const v=document.createElement('div');
+      v.id='view-platos'; v.className='view';
       document.getElementById('app-content')?.appendChild(v);
     }
   }

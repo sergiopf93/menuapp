@@ -16,6 +16,18 @@ const Menu = (() => {
   let _paso = 0;
   let _menuEnCurso = null;
 
+  // ── Reglas alimenticias (OMS / guía nutricional) ─────────────────
+  // Seguimiento semanal por grupo alimenticio
+  const GRUPOS_NUTRICIONALES = {
+    'legumbre':      { min: 3, max: 4, etiquetas: ['legumbre'] },
+    'pescado':       { min: 3, max: 4, etiquetas: ['pescado-blanco','pescado-azul'] },
+    'pescado-azul':  { min: 1, max: 2, etiquetas: ['pescado-azul'] },  // del total de pescado
+    'carne':         { min: 2, max: 3, etiquetas: ['carne-ave','carne-roja'] },
+    'carne-roja':    { min: 0, max: 1, etiquetas: ['carne-roja'] },    // max 1/semana
+    'huevo':         { min: 3, max: 4, etiquetas: ['huevo'] },
+    'verdura':       { min: 7, max: 99, etiquetas: ['verdura','ensalada'] }, // todos los días
+  };
+
   const ETIQUETAS_PROTEINA = {
     carne:   ['carne','pollo','cerdo','ternera','pavo','cordero'],
     pescado: ['pescado','marisco','merluza','lubina','salmón','atún','bacalao'],
@@ -536,6 +548,7 @@ const Menu = (() => {
 
     _setGenMsg('Generando platos...');
     const usadosSemana   = new Map();  // platoId → [diasUsados] para detectar días consecutivos
+    const contadorGrupos = {};         // grupo → veces usada esta semana (equilibrio nutricional)
     const usadosBebe     = new Set();
     const protPorDia     = {};
     const cfgMenus       = config?.configuracionMenus || {};
@@ -557,12 +570,13 @@ const Menu = (() => {
             platos:platosActivos, momento:'comida',
             usadosSemana, usadosReciente, artsPrioritarios,
             protPorDia, diaIndex:di, esCena:false, cfgMenus,
-            soloFacil: dia.facilComida,
+            soloFacil: dia.facilComida, contadorGrupos,
           });
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             _registrarMayor(usadosSemana, p.id, di);
             _registrarProteina(protPorDia, di, p);
+            _registrarGrupo(contadorGrupos, p);
             if((p.diasSobras||0) > 0 && tieneBebe)
               sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
 
@@ -598,13 +612,14 @@ const Menu = (() => {
             platos:platosActivos, momento:'cena',
             usadosSemana, usadosReciente, artsPrioritarios,
             protPorDia, diaIndex:di, esCena:true, cfgMenus,
-            forzarUnico:true, soloFacil: dia.facilCena,
+            forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
           });
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             blCena.platosMayores = [{id:p.id,nombre:p.nombre}];
             _registrarMayor(usadosSemana, p.id, di);
             _registrarProteina(protPorDia, di, p);
+            _registrarGrupo(contadorGrupos, p);
           }
         }
 
@@ -663,54 +678,61 @@ const Menu = (() => {
     usadosSemana.get(id).push(diaIndex);
   }
 
+  /** Registra el grupo alimenticio de un plato para el control semanal */
+  function _registrarGrupo(contadorGrupos, plato) {
+    (plato.etiquetas||[]).forEach(e => {
+      contadorGrupos[e] = (contadorGrupos[e]||0) + 1;
+    });
+  }
+
   // ── Filtro candidatos adultos ────────────────────────────────────
 
   function _filtrarMayores({platos,momento,usadosSemana,usadosReciente,
-    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil}){
+    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil,contadorGrupos}){
     const eqCC = cfgMenus?.equilibrioComidaCena !== false;
     const eqP  = cfgMenus?.equilibrioProteinas  !== false;
     const MAX  = 2;
 
     return platos.filter(p=>{
-      // Solo platos para adultos
       if(!p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
       if(soloTipo && p.tipoPlato !== soloTipo) return false;
       if(forzarUnico && p.tipoPlato !== 'unico') return false;
       if(!soloTipo && !forzarUnico && p.tipoPlato === 'segundo') return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-
-      // Límite semanal
       const diasUsados = usadosSemana.get(p.id) || [];
       if(diasUsados.length >= MAX) return false;
-
-      // No repetir en días consecutivos
       if(diasUsados.length > 0){
         const ultimoDia = diasUsados[diasUsados.length - 1];
-        if(diaIndex - ultimoDia <= 1) return false;  // día inmediatamente anterior → rechaza
+        if(diaIndex - ultimoDia <= 1) return false;
       }
-
-      // Frecuencia mínima entre semanas
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
-
-      // Día fácil
       if(soloFacil && !p.preparacionFacil) return false;
 
-      // Equilibrio comida/cena
+      // Reglas alimenticias — limita grupos sobreutilizados
+      if(contadorGrupos && eqP){
+        const etqs = (p.etiquetas||[]).map(e=>e.toLowerCase());
+        if(etqs.includes('carne-roja') && (contadorGrupos['carne-roja']||0) >= 1) return false;
+        const totalPescado = (contadorGrupos['pescado-blanco']||0)+(contadorGrupos['pescado-azul']||0);
+        if((etqs.includes('pescado-blanco')||etqs.includes('pescado-azul')) && totalPescado >= 4) return false;
+        if(etqs.includes('legumbre') && (contadorGrupos['legumbre']||0) >= 4) return false;
+        if(etqs.includes('huevo') && (contadorGrupos['huevo']||0) >= 4) return false;
+        const totalCarne = (contadorGrupos['carne-ave']||0)+(contadorGrupos['carne-roja']||0);
+        if((etqs.includes('carne-ave')||etqs.includes('carne-roja')) && totalCarne >= 3) return false;
+      }
+
       if(eqCC && esCena){
         const etqs = (p.etiquetas||[]).map(e=>e.toLowerCase());
         if(etqs.some(e=>['legumbre','guiso','cocido','paella','fabada'].includes(e))) return false;
       }
-
-      // Equilibrio proteínas
       if(eqP && diaIndex >= 2){
         const prot = _detectarProteina(p);
         if(prot && protPorDia[diaIndex-1]===prot && protPorDia[diaIndex-2]===prot) return false;
       }
-
       return true;
     });
   }
+
 
   /** Busca un segundo para adultos */
   function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento) {
@@ -814,12 +836,16 @@ const Menu = (() => {
 
   // ── Helpers bebé ─────────────────────────────────────────────────
 
-  /** Filtra platos válidos para bebé (excluye segundos, excluye solo-adultos) */
+  /** Filtra platos válidos para bebé — en cena acepta también platos de comida */
   function _filtrarCandidatosBebe(platos, momento, usadosBebe, usadosReciente) {
     return platos.filter(p => {
       if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
       if(p.tipoPlato === 'segundo') return false;
-      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      // Regla: en cena del bebé se aceptan platos de comida o de ambos
+      const momentoOk = p.tipoComida?.includes(momento) ||
+                        p.tipoComida?.includes('ambos') ||
+                        (momento === 'cena' && p.tipoComida?.includes('comida'));
+      if(!momentoOk) return false;
       if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
