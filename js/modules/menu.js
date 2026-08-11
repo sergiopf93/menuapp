@@ -553,7 +553,7 @@ const Menu = (() => {
     _setGenMsg('Generando platos...');
     const usadosSemana   = new Map();  // platoId → [diasUsados] para detectar días consecutivos
     const contadorGrupos = {};         // grupo → veces usada esta semana (equilibrio nutricional)
-    const usadosBebe     = new Set();
+    const usadosBebe     = [];  // array de ids (permite duplicados para contar usos)
     const protPorDia     = {};
     const cfgMenus       = config?.configuracionMenus || {};
     const sobrasBebe     = {};         // platoId → días restantes
@@ -570,12 +570,29 @@ const Menu = (() => {
 
         // 1. Adultos comida
         if(blComida._mayActivo){
-          const cands = _filtrarMayores({
+          let cands = _filtrarMayores({
             platos:platosActivos, momento:'comida',
             usadosSemana, usadosReciente, artsPrioritarios,
             protPorDia, diaIndex:di, esCena:false, cfgMenus,
             soloFacil: dia.facilComida, contadorGrupos,
           });
+          // Fallback 1: relajar distancia mínima
+          if(!cands.length){
+            cands = _filtrarMayores({
+              platos:platosActivos, momento:'comida',
+              usadosSemana, usadosReciente:[], artsPrioritarios,
+              protPorDia, diaIndex:di, esCena:false, cfgMenus,
+              soloFacil: dia.facilComida, contadorGrupos, relajarDistancia:true,
+            });
+          }
+          // Fallback 2: ignorar todos los límites excepto tipoMenu/tipoComida
+          if(!cands.length){
+            cands = platosActivos.filter(p=>
+              (p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos')) &&
+              p.tipoPlato !== 'segundo' &&
+              (p.tipoComida?.includes('comida')||p.tipoComida?.includes('ambos'))
+            );
+          }
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             _registrarMayor(usadosSemana, p.id, di);
@@ -612,12 +629,30 @@ const Menu = (() => {
 
         // 1. Adultos cena — siempre plato único
         if(blCena._mayActivo){
-          const cands = _filtrarMayores({
+          let cands = _filtrarMayores({
             platos:platosActivos, momento:'cena',
             usadosSemana, usadosReciente, artsPrioritarios,
             protPorDia, diaIndex:di, esCena:true, cfgMenus,
             forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
           });
+          // Fallback 1: relajar distancia mínima entre repeticiones
+          if(!cands.length){
+            cands = _filtrarMayores({
+              platos:platosActivos, momento:'cena',
+              usadosSemana, usadosReciente:[], artsPrioritarios,
+              protPorDia, diaIndex:di, esCena:true, cfgMenus,
+              forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
+              relajarDistancia: true,
+            });
+          }
+          // Fallback 2: ignorar límite semanal (último recurso)
+          if(!cands.length){
+            cands = platosActivos.filter(p=>
+              (p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos')) &&
+              p.tipoPlato==='unico' &&
+              (p.tipoComida?.includes('cena')||p.tipoComida?.includes('ambos'))
+            );
+          }
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             blCena.platosMayores = [{id:p.id,nombre:p.nombre}];
@@ -791,7 +826,7 @@ const Menu = (() => {
     const cands = _filtrarCandidatosBebe(platosActivos, 'comida', usadosBebe, usadosReciente);
     const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
     if(p){
-      usadosBebe.add(p.id);
+      usadosBebe.push(p.id);
       if((p.diasSobras||0) > 0) sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
       return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
         platosActivos, p, usadosBebe, usadosReciente, 'comida');
@@ -831,7 +866,7 @@ const Menu = (() => {
     const cands = _filtrarCandidatosBebe(platosActivos, momento, usadosBebe, usadosReciente);
     const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
     if(p){
-      usadosBebe.add(p.id);
+      usadosBebe.push(p.id);
       return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
         platosActivos, p, usadosBebe, usadosReciente, momento);
     }
@@ -851,7 +886,7 @@ const Menu = (() => {
                         p.tipoComida?.includes('ambos') ||
                         (momento === 'cena' && p.tipoComida?.includes('comida'));
       if(!momentoOk) return false;
-      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      if(!p.permiteRepeticion && usadosBebe.includes(p.id)) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
       return true;
@@ -875,14 +910,14 @@ const Menu = (() => {
     if(tipo === 'segundo'){
       // Tenemos un segundo solo: buscamos un primero para ponerlo antes
       const primero = _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento);
-      if(primero){ usadosBebe.add(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...platosRef]; }
+      if(primero){ usadosBebe.push(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...platosRef]; }
       return platosRef;
     }
 
     if(tipo === 'primero'){
       // Tenemos un primero: buscamos un segundo
       const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
-      if(segundo){ usadosBebe.add(segundo.id); return [...platosRef, {id:segundo.id,nombre:segundo.nombre}]; }
+      if(segundo){ usadosBebe.push(segundo.id); return [...platosRef, {id:segundo.id,nombre:segundo.nombre}]; }
     }
 
     return platosRef;
@@ -905,46 +940,61 @@ const Menu = (() => {
     if(tipo === 'segundo'){
       // Solo tenemos un segundo: buscamos primero
       const primero = _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento);
-      if(primero){ usadosBebe.add(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...compatAdultos]; }
+      if(primero){ usadosBebe.push(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...compatAdultos]; }
       return compatAdultos;
     }
 
     // tipo === 'primero': busca segundo
     const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
-    if(segundo){ usadosBebe.add(segundo.id); return [...compatAdultos, {id:segundo.id,nombre:segundo.nombre}]; }
+    if(segundo){ usadosBebe.push(segundo.id); return [...compatAdultos, {id:segundo.id,nombre:segundo.nombre}]; }
     return compatAdultos;
   }
 
   function _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento) {
     const cands = platosActivos.filter(p => {
+      // Acepta platos para bebé O para todos
       if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
       if(p.tipoPlato !== 'primero') return false;
-      // En cena del bebé también acepta platos de comida
+      // En cena del bebé acepta platos de comida o ambos (regla interna)
       const momentoOk = p.tipoComida?.includes(momento) ||
                         p.tipoComida?.includes('ambos') ||
                         (momento === 'cena' && p.tipoComida?.includes('comida'));
       if(!momentoOk) return false;
-      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      if(!p.permiteRepeticion && usadosBebe.includes(p.id)) return false;
       return true;
     });
     if(!cands.length) return null;
-    return cands[Math.floor(Math.random() * cands.length)];
+    // Prioriza los menos usados
+    const conUso = cands.map(p => ({p, usos: usadosBebe.filter(id=>id===p.id).length}));
+    conUso.sort((a,b) => a.usos - b.usos);
+    const minUsos = conUso[0].usos;
+    const menosUsados = conUso.filter(x => x.usos === minUsos).map(x => x.p);
+    return menosUsados[Math.floor(Math.random() * menosUsados.length)];
   }
 
   function _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento) {
     const cands = platosActivos.filter(p => {
       if(p.tipoPlato !== 'segundo') return false;
+      // Acepta platos para bebé O para todos
       if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
-      // En cena del bebé también se aceptan segundos de comida o ambos (regla interna)
+      // En cena del bebé acepta segundos de comida o ambos (regla interna)
       const momentoOk = p.tipoComida?.includes(momento) ||
                         p.tipoComida?.includes('ambos') ||
                         (momento === 'cena' && p.tipoComida?.includes('comida'));
       if(!momentoOk) return false;
-      if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
+      // Límite de 3 usos por semana aunque permita repetición
+      const usosActuales = usadosBebe.filter(id => id === p.id).length;
+      if(usosActuales >= 3) return false;
+      if(!p.permiteRepeticion && usadosBebe.includes(p.id)) return false;
       return true;
     });
     if(!cands.length) return null;
-    return cands[Math.floor(Math.random() * cands.length)];
+    // Prioriza los menos usados esta semana
+    const conUso = cands.map(p => ({p, usos: usadosBebe.filter(id=>id===p.id).length}));
+    conUso.sort((a,b) => a.usos - b.usos);
+    const minUsos = conUso[0].usos;
+    const menosUsados = conUso.filter(x => x.usos === minUsos).map(x => x.p);
+    return menosUsados[Math.floor(Math.random() * menosUsados.length)];
   }
 
   function _elegirDeSobras(sobrasBebe, platosActivos) {
