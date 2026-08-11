@@ -673,7 +673,17 @@ const Platos = (() => {
     if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con Gemini...'; statusEl.classList.remove('hidden'); }
     if(btn) btn.disabled = true;
 
-    const PROMPT = `Visita esta URL y extrae los datos de la receta: ${link}
+    // Detecta el tipo de fuente para usar la estrategia correcta
+    const esYoutube   = /youtube\.com|youtu\.be/i.test(link);
+    const esInstagram = /instagram\.com/i.test(link);
+
+    const fuenteDesc = esYoutube
+      ? 'Analiza este vídeo de YouTube y extrae la receta que aparece'
+      : esInstagram
+        ? 'Busca esta publicación de Instagram y extrae la receta'
+        : 'Visita esta URL y extrae los datos de la receta';
+
+    const PROMPT = `${fuenteDesc}: ${link}
 
 Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
 - nombre: string con el nombre del plato
@@ -685,6 +695,24 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
 - notificacionPrevia: null, o string corto si requiere preparación previa
 - etiquetas: array con máximo 2 valores de esta lista: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
 - ingredientes: array de los 8 ingredientes principales, cada uno con: nombre (string), cantidad (número), unidad (UN/KG/GR/L/ML/PAQ), categoria (Frutas y verduras / Carnicería / Pescadería / Lácteos / Conservas / Legumbres / Especias / Aceites y vinagres / Salsas y condimentos / Pan y bollería / Repostería y panadería / Congelados / Bebidas)`;
+    // Gemini puede procesar vídeos de YouTube nativamente con fileData
+    // Para web e Instagram usa googleSearch grounding
+    let contents, tools;
+
+    if (esYoutube) {
+      // YouTube: Gemini puede analizar el vídeo directamente
+      contents = [{
+        parts: [
+          { fileData: { mimeType: 'video/mp4', fileUri: link } },
+          { text: PROMPT }
+        ]
+      }];
+      tools = [];
+    } else {
+      // Web / Instagram: usa Google Search para acceder al contenido
+      contents = [{ parts: [{ text: PROMPT }] }];
+      tools = [{ googleSearch: {} }];
+    }
 
     try {
       const response = await fetch(
@@ -693,7 +721,8 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: PROMPT }] }],
+            contents,
+            ...(tools.length ? { tools } : {}),
             generationConfig: {
               temperature: 0.2,
               maxOutputTokens: 2000,
@@ -709,8 +738,10 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
       }
 
       const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error('Gemini no devolvió contenido');
+      // Con googleSearch activado, el texto puede venir en múltiples partes
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map(p => p.text || '').join('').trim();
+      if (!text) throw new Error('Gemini no devolvió contenido. Verifica que la URL sea accesible.');
 
       // Extrae el bloque JSON del texto de respuesta
       let jsonStr = text.trim();
