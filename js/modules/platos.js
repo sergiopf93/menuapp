@@ -673,19 +673,18 @@ const Platos = (() => {
     if(statusEl){ statusEl.className=''; statusEl.textContent='🤖 Analizando receta con Gemini...'; statusEl.classList.remove('hidden'); }
     if(btn) btn.disabled = true;
 
-    const PROMPT = `Analiza la receta de este link y extrae los datos: ${link}
+    const PROMPT = `Visita esta URL y extrae los datos de la receta: ${link}
 
-Responde ÚNICAMENTE con un JSON válido y completo, sin markdown ni texto adicional:
-{"nombre":"nombre del plato","raciones":4,"tipoPlato":"unico","tipoComida":["comida"],"tipoMenu":["todos"],"ingredientes":[{"nombre":"ingrediente","cantidad":1,"unidad":"UN","categoria":"Frutas y verduras"}],"etiquetas":["verdura"],"preparacionFacil":false,"notificacionPrevia":null}
-
-Valores válidos:
-- tipoPlato: "unico", "primero" o "segundo"
-- tipoComida: ["comida"], ["cena"] o ["ambos"]
-- tipoMenu: ["mayores"], ["bebe"] o ["todos"]
-- etiquetas (máx 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
-- unidad: UN, KG, GR, L, ML, PAQ
-- categoria: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Charcutería y envasados, Pan y bollería, Repostería y panadería, Congelados, Bebidas
-- Limita ingredientes a los 10 principales`;
+Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
+- nombre: string con el nombre del plato
+- raciones: número entero de raciones (ej: 4)
+- tipoPlato: una de estas opciones exactas: unico / primero / segundo
+- tipoComida: array con una opción: comida / cena / ambos
+- tipoMenu: array con una opción: mayores / bebe / todos
+- preparacionFacil: true si tarda menos de 30 minutos, false si no
+- notificacionPrevia: null, o string corto si requiere preparación previa
+- etiquetas: array con máximo 2 valores de esta lista: verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, hidratos, ensalada
+- ingredientes: array de los 8 ingredientes principales, cada uno con: nombre (string), cantidad (número), unidad (UN/KG/GR/L/ML/PAQ), categoria (Frutas y verduras / Carnicería / Pescadería / Lácteos / Conservas / Legumbres / Especias / Aceites y vinagres / Salsas y condimentos / Pan y bollería / Repostería y panadería / Congelados / Bebidas)`;
 
     try {
       const response = await fetch(
@@ -696,9 +695,8 @@ Valores válidos:
           body: JSON.stringify({
             contents: [{ parts: [{ text: PROMPT }] }],
             generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 1024,
-              // Sin responseMimeType — evita truncaciones en modo JSON estricto
+              temperature: 0.2,
+              maxOutputTokens: 2000,
             },
           }),
         }
@@ -714,35 +712,40 @@ Valores válidos:
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error('Gemini no devolvió contenido');
 
-      // Extrae el JSON de forma robusta — Gemini a veces rodea el JSON con texto
+      // Extrae el bloque JSON del texto de respuesta
       let jsonStr = text.trim();
-
-      // Elimina bloques de código markdown si los hay
       jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim();
 
-      // Si el JSON está incompleto (string cortado), intenta repararlo
-      // Busca el primer { y el último } balanceado
+      // Busca el primer { del JSON real
       const firstBrace = jsonStr.indexOf('{');
       if (firstBrace > 0) jsonStr = jsonStr.slice(firstBrace);
 
-      // Cuenta llaves para encontrar el cierre correcto
+      // Encuentra el cierre balanceado
       let depth = 0, lastClose = -1;
+      let inString = false, escaped = false;
       for (let i = 0; i < jsonStr.length; i++) {
-        if (jsonStr[i] === '{') depth++;
-        else if (jsonStr[i] === '}') { depth--; if (depth === 0) { lastClose = i; break; } }
+        const c = jsonStr[i];
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\' && inString) { escaped = true; continue; }
+        if (c === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { lastClose = i; break; } }
       }
       if (lastClose > 0) jsonStr = jsonStr.slice(0, lastClose + 1);
 
-      // Elimina caracteres de control que rompen JSON
-      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' ');
-
+      // Intenta parsear directamente
       let receta;
       try {
         receta = JSON.parse(jsonStr);
-      } catch(parseErr) {
-        // Último intento: pide a Gemini solo el JSON sin nada más
-        console.warn('[Platos] JSON inválido, reintentando con prompt más estricto:', parseErr.message);
-        throw new Error(`JSON inválido de Gemini: ${parseErr.message}. Intenta con otra URL o rellena los datos manualmente.`);
+      } catch {
+        // Intento de reparación: cierra strings y objetos abiertos
+        const repaired = _repairJSON(jsonStr);
+        try {
+          receta = JSON.parse(repaired);
+        } catch(e2) {
+          throw new Error(`No se pudo parsear la respuesta de Gemini. Intenta con otra URL o rellena los datos manualmente.`);
+        }
       }
 
       _rellenarFormConReceta(receta, link, formContainer);
@@ -918,6 +921,42 @@ Valores válidos:
 
 
   function _renderList_after_submit() { _renderList(); }
+
+  /**
+   * Intenta reparar un JSON truncado cerrando strings y estructuras abiertas.
+   */
+  function _repairJSON(str) {
+    let result = str.trim();
+    // Elimina caracteres de control
+    result = result.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // Elimina coma final antes de } o ]
+    result = result.replace(/,\s*([\]}])/g, '$1');
+
+    // Cierra strings abiertos contando comillas no escapadas
+    let inStr = false, lastStrStart = -1;
+    for (let i = 0; i < result.length; i++) {
+      if (result[i] === '\\') { i++; continue; }
+      if (result[i] === '"') {
+        if (!inStr) { inStr = true; lastStrStart = i; }
+        else { inStr = false; lastStrStart = -1; }
+      }
+    }
+    if (inStr) result += '"'; // cierra string abierto
+
+    // Cierra arrays y objetos abiertos
+    const stack = [];
+    inStr = false;
+    for (let i = 0; i < result.length; i++) {
+      if (result[i] === '\\') { i++; continue; }
+      if (result[i] === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (result[i] === '{') stack.push('}');
+      else if (result[i] === '[') stack.push(']');
+      else if (result[i] === '}' || result[i] === ']') stack.pop();
+    }
+    result += stack.reverse().join('');
+    return result;
+  }
 
   function _ensureView() {
     if (!document.getElementById('view-platos')) {
