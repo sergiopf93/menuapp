@@ -1442,19 +1442,19 @@ const Menu = (() => {
         const estado  = sobrante ? '⚠ exceso' : enRango ? '✓ ok' : (ref.minSem===0&&count===0)?'✓ ok':'↓ bajo';
 
         html += `
-          <div style="margin-bottom:var(--space-3)">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <span style="font-size:var(--font-size-sm);font-weight:600">${ref.label}</span>
-              <span style="font-size:var(--font-size-xs);color:${color};font-weight:700">
-                ${count} / recom. ${ref.minSem}–${ref.maxSem}×sem &nbsp; ${estado}
+          <div style="margin-bottom:var(--space-4)">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+              <span style="font-size:var(--font-size-sm);font-weight:700">${ref.label}</span>
+              <span style="font-size:var(--font-size-xs);color:${color};font-weight:700;text-align:right;white-space:nowrap;margin-left:var(--space-3)">
+                ${count}×sem &nbsp;·&nbsp; recom. ${ref.minSem}–${ref.maxSem} &nbsp; ${estado}
               </span>
             </div>
-            <div style="height:10px;background:var(--color-border);border-radius:var(--radius-full);overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:${color};border-radius:var(--radius-full);transition:width .4s ease"></div>
+            <div style="height:12px;background:var(--color-border);border-radius:var(--radius-full);overflow:hidden;position:relative">
+              <div style="height:100%;width:${pct}%;background:${color};border-radius:var(--radius-full);transition:width .4s ease;min-width:${count>0?'8px':'0'}"></div>
+              ${ref.minSem > 0 ? `<div style="position:absolute;top:0;bottom:0;left:${Math.min(100,Math.round(ref.minSem/ref.maxSem*100))}%;width:2px;background:rgba(0,0,0,.2)"></div>` : ''}
             </div>
-            <div style="display:flex;justify-content:space-between;margin-top:2px">
-              <span style="font-size:9px;color:var(--color-text-muted)">0</span>
-              <span style="font-size:9px;color:var(--color-text-muted)">óptimo: ${ref.minSem}–${ref.maxSem}</span>
+            <div style="display:flex;justify-content:flex-end;margin-top:2px">
+              <span style="font-size:9px;color:var(--color-text-muted)">óptimo: ${ref.minSem}–${ref.maxSem}×sem</span>
             </div>
           </div>`;
       });

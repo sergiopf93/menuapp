@@ -134,10 +134,15 @@ const Platos = (() => {
     const items = platos || [];
 
     const filtered = items.filter(p => {
-      const matchMenu  = _filtroTipoMenu  === 'todos' || p.tipoMenu?.includes(_filtroTipoMenu);
+      // tipoMenu: 'todos' muestra todo. 'mayores'/'bebe' solo muestra platos para ese perfil
+      // Un plato con tipoMenu:['todos'] aparece en cualquier filtro
+      const matchMenu = _filtroTipoMenu === 'todos' ||
+        p.tipoMenu?.includes(_filtroTipoMenu) ||
+        p.tipoMenu?.includes('todos');
       const matchPlato = _filtroTipoPlato === 'todos' || p.tipoPlato === _filtroTipoPlato;
-      const matchComida= _filtroComida    === 'todos' ||
-        p.tipoComida?.includes(_filtroComida) || p.tipoComida?.includes('ambos');
+      const matchComida = _filtroComida === 'todos' ||
+        p.tipoComida?.includes(_filtroComida) ||
+        p.tipoComida?.includes('ambos');
       const matchText  = !_filtroTexto ||
         p.nombre.toLowerCase().includes(_filtroTexto) ||
         (p.etiquetas||[]).some(e => e.toLowerCase().includes(_filtroTexto));
