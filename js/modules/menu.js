@@ -91,6 +91,9 @@ const Menu = (() => {
                ? `<button class="btn btn-secondary" style="flex:1" id="menu-btn-editar">✏️ Editar semana</button>
                   <button class="btn btn-primary" style="flex:1" id="menu-btn-compra">🛒 Compra</button>`
                : `<button class="btn btn-primary btn-full" id="menu-btn-nuevo2">Generar menú de esta semana</button>`}
+           </div>
+           <div style="margin-top:var(--space-3)">
+             <button class="btn btn-secondary btn-full" id="menu-btn-kpi">📊 Ver equilibrio nutricional</button>
            </div>`
         : `<div class="card card-empty">
              <div class="empty-state-icon">📅</div>
@@ -98,6 +101,7 @@ const Menu = (() => {
              <button class="btn btn-primary" id="menu-btn-nuevo2">Generar primer menú</button>
            </div>`}`;
 
+    document.getElementById('menu-btn-kpi')?.addEventListener('click', ()=>_mostrarKPIs(diasCombinados));
     document.getElementById('menu-btn-nuevo')?.addEventListener('click',_iniciarAsistente);
     document.getElementById('menu-btn-nuevo2')?.addEventListener('click',_iniciarAsistente);
     document.getElementById('menu-btn-editar')?.addEventListener('click',()=>{
@@ -675,7 +679,8 @@ const Menu = (() => {
    */
   function _registrarMayor(usadosSemana, id, diaIndex) {
     if(!usadosSemana.has(id)) usadosSemana.set(id, []);
-    usadosSemana.get(id).push(diaIndex);
+    const arr = usadosSemana.get(id);
+    if(!arr.includes(diaIndex)) arr.push(diaIndex); // evita doble registro si comida+cena mismo día
   }
 
   /** Registra el grupo alimenticio de un plato para el control semanal */
@@ -894,7 +899,11 @@ const Menu = (() => {
     const cands = platosActivos.filter(p => {
       if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
       if(p.tipoPlato !== 'primero') return false;
-      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      // En cena del bebé también acepta platos de comida
+      const momentoOk = p.tipoComida?.includes(momento) ||
+                        p.tipoComida?.includes('ambos') ||
+                        (momento === 'cena' && p.tipoComida?.includes('comida'));
+      if(!momentoOk) return false;
       if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
       return true;
     });
@@ -906,7 +915,11 @@ const Menu = (() => {
     const cands = platosActivos.filter(p => {
       if(p.tipoPlato !== 'segundo') return false;
       if(!p.tipoMenu?.includes('bebe') && !p.tipoMenu?.includes('todos')) return false;
-      if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
+      // En cena del bebé también se aceptan segundos de comida o ambos (regla interna)
+      const momentoOk = p.tipoComida?.includes(momento) ||
+                        p.tipoComida?.includes('ambos') ||
+                        (momento === 'cena' && p.tipoComida?.includes('comida'));
+      if(!momentoOk) return false;
       if(!p.permiteRepeticion && usadosBebe.has(p.id)) return false;
       return true;
     });
@@ -1001,71 +1014,197 @@ const Menu = (() => {
 
   // ── Popup platos ─────────────────────────────────────────────────
 
-  function _abrirPopupPlato(fecha,momento,perfil){
-    const state=App.getState();
-    const platosActivos=(state.platos||[]).filter(p=>p.activo!==false);
-    const compatibles=platosActivos.filter(p=>{
-      const mOk=p.tipoComida?.includes(momento)||p.tipoComida?.includes('ambos');
-      const pOk=perfil==='bebe'
+  function _abrirPopupPlato(fecha, momento, perfil){
+    const state = App.getState();
+    const platosActivos = (state.platos||[]).filter(p=>p.activo!==false);
+    const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
+    const arr = perfil==='bebe' ? 'platosBebe' : 'platosMayores';
+    const platosActuales = dia?.[momento]?.[arr] || [];
+
+    // Compatibilidad: bebé en cena también acepta platos de comida
+    const compatibles = platosActivos.filter(p=>{
+      const mOk = p.tipoComida?.includes(momento) || p.tipoComida?.includes('ambos') ||
+                  (perfil==='bebe' && momento==='cena' && p.tipoComida?.includes('comida'));
+      const pOk = perfil==='bebe'
         ? p.tipoMenu?.includes('bebe')||p.tipoMenu?.includes('todos')
         : p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos');
-      return mOk&&pOk;
+      return mOk && pOk;
     });
 
-    const container=document.createElement('div');
-    container.innerHTML=`
+    const soloUnicos   = compatibles.filter(p=>p.tipoPlato==='unico');
+    const primeros     = compatibles.filter(p=>p.tipoPlato==='primero');
+    const segundos     = compatibles.filter(p=>p.tipoPlato==='segundo');
+    const esCenaAdulto = momento==='cena' && perfil==='mayores';
+
+    const container = document.createElement('div');
+    container.innerHTML = `
       <div class="search-bar" style="margin-bottom:var(--space-3)">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="search" id="popup-plato-search" placeholder="Buscar..." autocomplete="off"/>
       </div>
+
+      <!-- Selección actual -->
+      <div id="popup-seleccion-actual" style="margin-bottom:var(--space-3)">
+        ${_buildSeleccionActual(platosActuales)}
+      </div>
+
+      <!-- Tabs para filtrar por tipo -->
+      <div class="pl-chips pl-chips--form" style="margin-bottom:var(--space-3)" id="popup-tabs">
+        <button class="pl-chip active" data-tab="todos">Todos</button>
+        <button class="pl-chip" data-tab="unico">🍽 Único</button>
+        ${!esCenaAdulto ? '<button class="pl-chip" data-tab="primero">1️⃣ Primero</button>' : ''}
+        ${!esCenaAdulto ? '<button class="pl-chip" data-tab="segundo">2️⃣ Segundo</button>' : ''}
+      </div>
+
       <div id="popup-plato-list" class="popup-plato-list">${_buildPopupPlatos(compatibles,'')}</div>`;
 
-    const modal=UI.showModal({
-      title:`${momento==='comida'?'🍽 Comida':'🌙 Cena'} · ${perfil==='bebe'?'Bebé':'Adultos'}`,
-      content:container,
+    const modal = UI.showModal({
+      title: `Editar — ${momento==='comida'?'🍽 Comida':'🌙 Cena'} · ${perfil==='bebe'?'Bebé':'Adultos'}`,
+      content: container,
     });
+
     setTimeout(()=>{
-      const inp=document.getElementById('popup-plato-search');
-      inp?.focus();
-      inp?.addEventListener('input',e=>{
-        const f=e.target.value.toLowerCase();
-        const list=document.getElementById('popup-plato-list');
-        if(list) list.innerHTML=_buildPopupPlatos(compatibles,f);
-        _bindPopupPlatos(fecha,momento,perfil,modal);
+      let tabActual = 'todos';
+      let filtroTexto = '';
+
+      function getFiltrados() {
+        let pool = tabActual==='todos' ? compatibles
+          : tabActual==='unico'   ? soloUnicos
+          : tabActual==='primero' ? primeros
+          : segundos;
+        if(filtroTexto) pool = pool.filter(p=>p.nombre.toLowerCase().includes(filtroTexto));
+        return pool;
+      }
+
+      function refresh() {
+        const list = document.getElementById('popup-plato-list');
+        if(list) list.innerHTML = _buildPopupPlatos(getFiltrados(),'');
+        _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+      }
+
+      // Tabs
+      container.querySelectorAll('#popup-tabs .pl-chip').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          container.querySelectorAll('#popup-tabs .pl-chip').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          tabActual = btn.dataset.tab;
+          refresh();
+        });
       });
-      _bindPopupPlatos(fecha,momento,perfil,modal);
-    },100);
+
+      // Búsqueda
+      const inp = document.getElementById('popup-plato-search');
+      inp?.focus();
+      inp?.addEventListener('input',e=>{ filtroTexto=e.target.value.toLowerCase(); refresh(); });
+
+      _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+    }, 100);
   }
 
-  function _buildPopupPlatos(platos,filtro){
-    const f=filtro?platos.filter(p=>p.nombre.toLowerCase().includes(filtro)):platos;
+  function _buildSeleccionActual(platos) {
+    if(!platos.length) return '<p class="text-sm text-muted" style="margin-bottom:0">Sin platos asignados. Selecciona abajo.</p>';
+    return `<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+      <span class="text-sm text-muted">Actual:</span>
+      ${platos.map((p,i)=>`
+        <span class="badge badge-blue">${i===0?'1º':'2º'} ${UI.escapeHtml(p.nombre)}
+          <button type="button" data-rm-idx="${i}" style="margin-left:4px;font-weight:700;color:var(--color-danger)">×</button>
+        </span>`).join('')}
+    </div>`;
+  }
+
+  function _buildPopupPlatos(platos, filtro){
+    const f = filtro ? platos.filter(p=>p.nombre.toLowerCase().includes(filtro)) : platos;
     if(!f.length) return `<p class="text-sm text-muted" style="padding:var(--space-4)">Sin resultados.</p>`;
     return f.sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(p=>`
-      <button class="popup-plato-item" data-id="${p.id}" data-nombre="${UI.escapeHtml(p.nombre)}">
-        <span class="popup-plato-nombre">${UI.escapeHtml(p.nombre)}</span>
-        <span class="popup-plato-meta">${(p.etiquetas||[]).slice(0,3).map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}</span>
+      <button class="popup-plato-item" data-id="${p.id}" data-nombre="${UI.escapeHtml(p.nombre)}" data-tipo="${p.tipoPlato}">
+        <div style="display:flex;align-items:center;gap:var(--space-2);flex:1">
+          <span class="badge badge-gray" style="font-size:10px;flex-shrink:0">
+            ${{unico:'Único',primero:'1º',segundo:'2º'}[p.tipoPlato]||''}
+          </span>
+          <span class="popup-plato-nombre">${UI.escapeHtml(p.nombre)}</span>
+        </div>
+        <span class="popup-plato-meta">${(p.etiquetas||[]).slice(0,2).map(e=>`<span class="pl-etiqueta">${UI.escapeHtml(e)}</span>`).join('')}</span>
       </button>`).join('');
   }
 
-  function _bindPopupPlatos(fecha,momento,perfil,modal){
+  function _bindPopupPlatos(fecha, momento, perfil, modal, arr, container){
+    // Eliminar plato de selección actual
+    container.querySelectorAll('[data-rm-idx]').forEach(btn=>{
+      btn.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.rmIdx);
+        const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
+        if(!dia) return;
+        const platosArr = dia[momento][arr] || [];
+        platosArr.splice(idx,1);
+        dia[momento][arr] = platosArr;
+        // Actualiza selección actual en el popup
+        const selEl = document.getElementById('popup-seleccion-actual');
+        if(selEl) selEl.innerHTML = _buildSeleccionActual(platosArr);
+        _actualizarCeldaCalendario(fecha, momento, perfil, platosArr);
+        // Re-bind
+        _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+      });
+    });
+
+    // Seleccionar plato
     document.querySelectorAll('.popup-plato-item').forEach(btn=>{
       btn.addEventListener('click',()=>{
-        _asignarPlato(fecha,momento,perfil,btn.dataset.id,btn.dataset.nombre);
-        modal.close();
+        const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
+        if(!dia) return;
+        const platosArr = dia[momento][arr] || [];
+        const tipo = btn.dataset.tipo;
+        const nuevoPlato = {id:btn.dataset.id, nombre:btn.dataset.nombre};
+        const esCenaAdulto = momento==='cena' && perfil==='mayores';
+
+        if(esCenaAdulto || tipo==='unico') {
+          // Reemplaza todo
+          dia[momento][arr] = [nuevoPlato];
+          _actualizarCeldaCalendario(fecha, momento, perfil, [nuevoPlato]);
+          modal.close();
+        } else if(tipo==='primero') {
+          // Pone como primero, mantiene segundo si había
+          const segundoExistente = platosArr.find(p=>{
+            const db=(App.getState().platos||[]).find(pl=>pl.id===p.id);
+            return db?.tipoPlato==='segundo';
+          });
+          const nuevos = segundoExistente ? [nuevoPlato, segundoExistente] : [nuevoPlato];
+          dia[momento][arr] = nuevos;
+          _actualizarCeldaCalendario(fecha, momento, perfil, nuevos);
+          // No cierra el modal — permite añadir segundo
+          const selEl = document.getElementById('popup-seleccion-actual');
+          if(selEl) selEl.innerHTML = _buildSeleccionActual(nuevos);
+          _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+        } else if(tipo==='segundo') {
+          // Añade como segundo, mantiene primero
+          const primeroExistente = platosArr.find(p=>{
+            const db=(App.getState().platos||[]).find(pl=>pl.id===p.id);
+            return db?.tipoPlato==='primero';
+          });
+          const nuevos = primeroExistente ? [primeroExistente, nuevoPlato] : [nuevoPlato];
+          dia[momento][arr] = nuevos;
+          _actualizarCeldaCalendario(fecha, momento, perfil, nuevos);
+          modal.close();
+        }
       });
     });
   }
 
-  function _asignarPlato(fecha,momento,perfil,platoId,platoNombre){
+  function _actualizarCeldaCalendario(fecha, momento, perfil, platos) {
+    const celda = document.querySelector(
+      `.menu-cal-celda--edit[data-fecha="${fecha}"][data-momento="${momento}"][data-perfil="${perfil}"]`
+    );
+    if(celda) celda.textContent = platos.map(p=>p.nombre).join(' + ') || '+';
+  }
+
+  // _asignarPlato queda como alias simple para compatibilidad
+  function _asignarPlato(fecha, momento, perfil, platoId, platoNombre){
     const dia=_menuEnCurso.dias.find(d=>d.fecha===fecha);
     if(!dia) return;
     const arr=perfil==='bebe'?'platosBebe':'platosMayores';
     if(!dia[momento][arr]) dia[momento][arr]=[];
     dia[momento][arr]=[{id:platoId,nombre:platoNombre}];
-    const celda=document.querySelector(
-      `.menu-cal-celda--edit[data-fecha="${fecha}"][data-momento="${momento}"][data-perfil="${perfil}"]`
-    );
-    if(celda) celda.textContent=platoNombre;
+    _actualizarCeldaCalendario(fecha, momento, perfil, [{id:platoId,nombre:platoNombre}]);
   }
 
   // ── Bind eventos ─────────────────────────────────────────────────
@@ -1162,6 +1301,107 @@ const Menu = (() => {
       v.id='view-menu';v.className='view';
       document.getElementById('app-content')?.appendChild(v);
     }
+  }
+
+  // ── KPIs nutricionales ───────────────────────────────────────────
+
+  function _mostrarKPIs(diasCombinados) {
+    const state   = App.getState();
+    const platosDB= state.platos || [];
+
+    // Referencias OMS por semana (7 días, 2 comidas principales)
+    const REFS = [
+      { grupo:'verdura',      label:'🥦 Verdura',      etiquetas:['verdura','ensalada'],               minSem:7,  maxSem:14, color:'#22c55e' },
+      { grupo:'legumbre',     label:'🫘 Legumbre',      etiquetas:['legumbre'],                         minSem:3,  maxSem:4,  color:'#f59e0b' },
+      { grupo:'pescado',      label:'🐟 Pescado',       etiquetas:['pescado-blanco','pescado-azul'],     minSem:3,  maxSem:4,  color:'#3b82f6' },
+      { grupo:'pescado-azul', label:'🐠 Pescado azul',  etiquetas:['pescado-azul'],                     minSem:1,  maxSem:2,  color:'#6366f1' },
+      { grupo:'carne',        label:'🍗 Carne',         etiquetas:['carne-ave','carne-roja'],            minSem:2,  maxSem:3,  color:'#ef4444' },
+      { grupo:'carne-roja',   label:'🥩 Carne roja',   etiquetas:['carne-roja'],                       minSem:0,  maxSem:1,  color:'#dc2626' },
+      { grupo:'huevo',        label:'🥚 Huevo',         etiquetas:['huevo'],                            minSem:3,  maxSem:4,  color:'#eab308' },
+      { grupo:'cereal',       label:'🌾 Cereal/pasta',  etiquetas:['cereal','pasta','arroz'],            minSem:3,  maxSem:7,  color:'#a78bfa' },
+    ];
+
+    // Agrupa días por semana ISO
+    const semanas = _agruparPorSemana(diasCombinados);
+
+    // Calcula conteos por semana y grupo
+    function contarGrupo(diasSemana, etiquetas) {
+      let count = 0;
+      diasSemana.forEach(d => {
+        ['comida','cena'].forEach(m => {
+          const bloque = d[m];
+          if(!bloque?.activo) return;
+          const todos = [...(bloque.platosMayores||[])];
+          const idsUnicos = [...new Set(todos.map(p=>p.id))];
+          idsUnicos.forEach(id => {
+            const plato = platosDB.find(p=>p.id===id);
+            if(!plato) return;
+            const etqs = (plato.etiquetas||[]).map(e=>e.toLowerCase());
+            if(etiquetas.some(e=>etqs.includes(e))) count++;
+          });
+        });
+      });
+      return count;
+    }
+
+    const container = document.createElement('div');
+
+    let html = `
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-5)">
+        Comparativa semanal de la programación actual frente a las recomendaciones alimenticias.
+        Basado en los platos de adultos con etiquetas de grupo.
+      </p>`;
+
+    semanas.forEach((diasSem, si) => {
+      const lunes = diasSem[0].fecha;
+      const dom   = diasSem[diasSem.length-1].fecha;
+      html += `<div style="margin-bottom:var(--space-6)">
+        <h3 style="font-size:var(--font-size-sm);font-weight:700;margin-bottom:var(--space-3);color:var(--color-text-secondary)">
+          Semana ${si+1} — ${Dates.format(lunes,'numshort')} al ${Dates.format(dom,'numshort')}
+        </h3>`;
+
+      REFS.forEach(ref => {
+        const count   = contarGrupo(diasSem, ref.etiquetas);
+        const pct     = ref.maxSem > 0 ? Math.min(100, Math.round(count/ref.maxSem*100)) : 0;
+        const enRango = count >= ref.minSem && count <= ref.maxSem;
+        const sobrante= count > ref.maxSem;
+        const color   = sobrante ? '#ef4444' : enRango ? '#22c55e' : ref.color;
+        const estado  = sobrante ? '⚠ exceso' : enRango ? '✓ ok' : (ref.minSem===0&&count===0)?'✓ ok':'↓ bajo';
+
+        html += `
+          <div style="margin-bottom:var(--space-3)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:var(--font-size-sm);font-weight:600">${ref.label}</span>
+              <span style="font-size:var(--font-size-xs);color:${color};font-weight:700">
+                ${count} / recom. ${ref.minSem}–${ref.maxSem}×sem &nbsp; ${estado}
+              </span>
+            </div>
+            <div style="height:10px;background:var(--color-border);border-radius:var(--radius-full);overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:${color};border-radius:var(--radius-full);transition:width .4s ease"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:2px">
+              <span style="font-size:9px;color:var(--color-text-muted)">0</span>
+              <span style="font-size:9px;color:var(--color-text-muted)">óptimo: ${ref.minSem}–${ref.maxSem}</span>
+            </div>
+          </div>`;
+      });
+
+      html += `</div>`;
+    });
+
+    if(!semanas.length) {
+      html += '<p class="text-sm text-muted">No hay menú generado para analizar.</p>';
+    }
+
+    html += `
+      <div style="background:var(--color-surface-2);border-radius:var(--radius-md);padding:var(--space-4);margin-top:var(--space-4)">
+        <p class="text-xs text-muted"><strong>Nota:</strong> El análisis usa las etiquetas de grupo asignadas a cada plato
+        (verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, carne-roja, huevo, cereal, pasta, arroz, ensalada).
+        Si un plato no tiene etiquetas, no se contabiliza. Puedes editarlas en el catálogo de platos.</p>
+      </div>`;
+
+    container.innerHTML = html;
+    UI.showModal({ title:'📊 Equilibrio nutricional semanal', content: container });
   }
 
   return { render, getCalendarioHTML };
