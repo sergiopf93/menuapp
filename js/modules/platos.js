@@ -741,6 +741,7 @@ Devuelve un objeto JSON con estos campos (sin markdown, sin explicaciones):
       // Con googleSearch activado, el texto puede venir en múltiples partes
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const text = parts.map(p => p.text || '').join('').trim();
+      console.log('[Gemini RAW]', JSON.stringify(text?.slice(0, 500)));  // log para diagnóstico
       if (!text) throw new Error('Gemini no devolvió contenido. Verifica que la URL sea accesible.');
 
       // Extrae el bloque JSON del texto de respuesta
