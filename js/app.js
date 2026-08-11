@@ -108,6 +108,9 @@ const App = (() => {
       // Vincula controles del header
       _bindHeaderControls();
 
+      // Limpia datos corruptos de platos (tipoMenu duplicado, ingredientes duplicados)
+      _limpiarDatosPlatos();
+
       // Inicia sincronización en background
       Sync.start();
       _registerSyncListeners();
@@ -282,9 +285,53 @@ const App = (() => {
   }
 
   /**
-   * Muestra las alertas de caducidad en el dashboard.
+   * Limpia datos corruptos en el catálogo de platos:
+   * - tipoMenu con valores duplicados (ej: ['mayores','mayores','mayores'])
+   * - tipoComida con valores duplicados
+   * - ingredientes duplicados por nombre
+   * - etiquetas duplicadas
+   * Guarda en Drive solo si hubo cambios.
    */
-  function _renderAlerts() {
+  async function _limpiarDatosPlatos() {
+    const platos = state.platos || [];
+    let hubocambios = false;
+
+    const platosLimpios = platos.map(p => {
+      const original = JSON.stringify(p);
+
+      // Normaliza tipoMenu
+      let tipoMenu = [...new Set(p.tipoMenu || ['todos'])];
+      if (tipoMenu.includes('todos')) tipoMenu = ['todos'];
+
+      // Normaliza tipoComida
+      const tipoComida = [...new Set(p.tipoComida || ['ambos'])];
+
+      // Deduplica etiquetas
+      const etiquetas = [...new Set(p.etiquetas || [])];
+
+      // Deduplica ingredientes por nombre (case-insensitive)
+      const ingMap = new Map();
+      (p.ingredientes || []).forEach(ing => {
+        const key = (ing.nombre||'').toLowerCase().trim();
+        if (key && !ingMap.has(key)) ingMap.set(key, ing);
+      });
+      const ingredientes = [...ingMap.values()];
+
+      const limpio = { ...p, tipoMenu, tipoComida, etiquetas, ingredientes };
+      if (JSON.stringify(limpio) !== original) hubocambios = true;
+      return limpio;
+    });
+
+    if (hubocambios) {
+      state.platos = platosLimpios;
+      await Drive.writeJson('platos.json', platosLimpios);
+      await Storage.set('cache_platos.json', platosLimpios);
+      console.log('[App] Datos de platos limpiados y guardados en Drive');
+    }
+  }
+
+  /**
+   * Muestra las alertas de caducidad en el dashboard.
     const container = document.getElementById('dashboard-alerts');
     if (!container || !state.inventario) return;
 
