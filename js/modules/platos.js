@@ -757,6 +757,7 @@ categoria: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Leg
 Máximo 12 ingredientes principales.`;
 
       const text2  = await callGemini(prompt2);
+      console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0, 600)));
       // Extrae array de ingredientes
       const startArr = text2.indexOf('[');
       const endArr   = text2.lastIndexOf(']');
