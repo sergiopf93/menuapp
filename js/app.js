@@ -426,6 +426,42 @@ const App = (() => {
   }
 
   /**
+   * Muestra alertas de caducidad en el dashboard.
+   */
+  function _renderAlerts() {
+    const container = document.getElementById('dashboard-alerts');
+    if (!container) return;
+
+    const inventario = state.inventario || [];
+    const config     = state.config || {};
+    const diasAlerta = config.notificaciones?.diasAlertaCaducidad || 7;
+    const alerts     = [];
+
+    inventario.forEach(item => {
+      const status = Dates.expiryStatus(item.fechaCaducidad);
+      if (status === 'expired') {
+        alerts.push(`<div class="alert alert-error">
+          ⚠ <strong>${UI.escapeHtml(item.nombre)}</strong> ha caducado.
+        </div>`);
+      } else if (status === 'urgent') {
+        const dias = Dates.daysUntil(item.fechaCaducidad);
+        alerts.push(`<div class="alert alert-warning">
+          🕐 <strong>${UI.escapeHtml(item.nombre)}</strong> caduca en ${dias} día${dias!==1?'s':''}.
+        </div>`);
+      } else if (status === 'soon' && Dates.daysUntil(item.fechaCaducidad) <= diasAlerta) {
+        const dias = Dates.daysUntil(item.fechaCaducidad);
+        alerts.push(`<div class="alert alert-info">
+          📅 <strong>${UI.escapeHtml(item.nombre)}</strong> caduca en ${dias} días.
+        </div>`);
+      }
+    });
+
+    container.innerHTML = alerts.length > 0
+      ? alerts.join('')
+      : '<p class="text-muted">Sin alertas pendientes.</p>';
+  }
+
+  /**
    * Muestra el estado de la conexión con Drive en el bloque de debug del dashboard.
    */
   function _renderDriveStatus() {
