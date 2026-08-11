@@ -865,17 +865,26 @@ const Menu = (() => {
    * - Si es 'segundo' → busca un primero (error de configuración, intenta corregir)
    */
   function _completarPrimeroSegundo(platosRef, platosActivos, platoObjeto, usadosBebe, usadosReciente, momento) {
-    if(!platoObjeto) return platosRef;
-    if(platoObjeto.tipoPlato === 'unico') return platosRef;
-    if(platoObjeto.tipoPlato === 'segundo'){
-      // Caso raro: solo tenemos un segundo, buscamos un primero
+    // Busca el tipo real del plato en la base de datos (puede que platoObjeto no tenga tipoPlato)
+    const platoDBId = platoObjeto?.id || platosRef?.[0]?.id;
+    const platoDB   = platoDBId ? platosActivos.find(p=>p.id===platoDBId) : null;
+    const tipo      = platoDB?.tipoPlato || platoObjeto?.tipoPlato || 'unico';
+
+    if(tipo === 'unico') return platosRef;  // plato único: no necesita complemento
+
+    if(tipo === 'segundo'){
+      // Tenemos un segundo solo: buscamos un primero para ponerlo antes
       const primero = _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento);
       if(primero){ usadosBebe.add(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...platosRef]; }
       return platosRef;
     }
-    // tipoPlato === 'primero': busca segundo
-    const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
-    if(segundo){ usadosBebe.add(segundo.id); return [...platosRef, {id:segundo.id,nombre:segundo.nombre}]; }
+
+    if(tipo === 'primero'){
+      // Tenemos un primero: buscamos un segundo
+      const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
+      if(segundo){ usadosBebe.add(segundo.id); return [...platosRef, {id:segundo.id,nombre:segundo.nombre}]; }
+    }
+
     return platosRef;
   }
 
@@ -884,12 +893,23 @@ const Menu = (() => {
    * asegura que el bebé tenga primero+segundo si el primero no es único.
    */
   function _asegurarPrimeroSegundo(compatAdultos, platosActivos, usadosBebe, usadosReciente, momento) {
-    if(compatAdultos.length >= 2) return compatAdultos;  // ya tiene dos
+    if(!compatAdultos.length) return [];
+    // Si ya tiene dos platos, devuelve tal cual
+    if(compatAdultos.length >= 2) return compatAdultos;
     const primerRef = compatAdultos[0];
-    if(!primerRef) return [];
-    const primerDB = platosActivos.find(p => p.id === primerRef.id);
-    if(!primerDB || primerDB.tipoPlato === 'unico') return compatAdultos;
-    // Necesita segundo
+    const primerDB  = platosActivos.find(p => p.id === primerRef.id);
+    const tipo      = primerDB?.tipoPlato || 'unico';
+
+    if(tipo === 'unico') return compatAdultos;  // plato único: no añadir segundo
+
+    if(tipo === 'segundo'){
+      // Solo tenemos un segundo: buscamos primero
+      const primero = _elegirPrimeroBebe(platosActivos, usadosBebe, usadosReciente, momento);
+      if(primero){ usadosBebe.add(primero.id); return [{id:primero.id,nombre:primero.nombre}, ...compatAdultos]; }
+      return compatAdultos;
+    }
+
+    // tipo === 'primero': busca segundo
     const segundo = _elegirSegundoBebe(platosActivos, usadosBebe, usadosReciente, momento);
     if(segundo){ usadosBebe.add(segundo.id); return [...compatAdultos, {id:segundo.id,nombre:segundo.nombre}]; }
     return compatAdultos;
