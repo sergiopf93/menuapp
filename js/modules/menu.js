@@ -630,15 +630,19 @@ const Menu = (() => {
 
         // 2. Bebé comida
         if(tieneBebe && blComida._bebeActivo){
-          // Pasa los días futuros para que el bebé solo tenga platos propios
-          // si los adultos los van a comer próximamente (minimizar cocciones)
-          const diasFuturos = dias.slice(di+1, di+3);  // próximos 2 días
+          const diasFuturos = dias.slice(di+1, di+3);
           blComida.platosBebe = _generarBloqueBebeComida(
             blComida.platosMayores, platosActivos,
             usadosBebe, usadosReciente, artsPrioritarios,
             sobrasBebe, cfgMenus, dia.facilComida, inventario||[],
             diasFuturos
           );
+          // Registra en usadosBebe lo que comió el bebé al mediodía
+          // para que NO se repita en la cena del mismo día
+          (blComida.platosBebe||[]).forEach(p => {
+            if(!usadosBebe.includes(`${p.id}_dia${di}`))
+              usadosBebe.push(`${p.id}_dia${di}`);
+          });
         }
       }
 
@@ -687,7 +691,7 @@ const Menu = (() => {
             blCena.platosMayores, platosActivos,
             usadosBebe, usadosReciente, artsPrioritarios,
             sobrasBebe, cfgMenus, dia.facilCena, 'cena', inventario||[],
-            blComida.platosMayores  // platos que comieron los adultos al mediodía HOY
+            blComida.platosMayores, di  // platos mediodía + índice del día
           );
         }
       }
@@ -911,25 +915,34 @@ const Menu = (() => {
    */
   function _generarBloqueBebeConSobras(platosAdultos, platosActivos, usadosBebe,
     usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, momento, inventario,
-    platosComidaHoy) {
+    platosComidaHoy, diaIndex) {
 
-    // 1. Sobras del mediodía de HOY (lo que comieron los adultos al mediodía)
-    // Son los mejores candidatos — ya está cocinado y es del mismo día
+    // IDs que el bebé ya comió hoy al mediodía — no repetir en cena
+    const yaComidosHoy = new Set(
+      (platosComidaHoy||[]).map(p => p.id)
+    );
+    // También marca con diaIndex para saber que es de hoy
+    const yaMarcadosHoy = id => usadosBebe.includes(`${id}_dia${diaIndex}`);
+
+    // 1. Sobras del mediodía de HOY que NO sean lo mismo que ya comió el bebé
+    // (buscamos algo diferente al mediodía para dar variedad en cena)
+    // Si el bebé comió lo mismo que adultos al mediodía, buscamos algo diferente en cena
     if(platosComidaHoy?.length){
-      const compatHoy = platosComidaHoy.filter(pa => {
+      const compatHoyDiferente = platosComidaHoy.filter(pa => {
+        if(yaMarcadosHoy(pa.id)) return false;  // ya lo comió el bebé al mediodía
         const db = platosActivos.find(p => p.id === pa.id);
         return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
       });
-      if(compatHoy.length > 0){
-        return _completarPrimeroSegundo([compatHoy[0]],
-          platosActivos, platosActivos.find(p=>p.id===compatHoy[0].id),
+      if(compatHoyDiferente.length > 0){
+        return _completarPrimeroSegundo([compatHoyDiferente[0]],
+          platosActivos, platosActivos.find(p=>p.id===compatHoyDiferente[0].id),
           usadosBebe, usadosReciente, momento);
       }
     }
 
-    // 2. Plato de cena de adultos si es compatible con bebé
+    // 2. Plato de cena de adultos si es compatible y diferente a lo del mediodía
     const platoCenaAd = (platosAdultos||[])[0];
-    const dbCenaAd = platoCenaAd
+    const dbCenaAd = platoCenaAd && !yaMarcadosHoy(platoCenaAd.id)
       ? platosActivos.find(p => p.id===platoCenaAd.id &&
           (p.tipoMenu.includes('todos') || p.tipoMenu.includes('bebe')))
       : null;
@@ -938,8 +951,8 @@ const Menu = (() => {
         platosActivos, dbCenaAd, usadosBebe, usadosReciente, momento);
     }
 
-    // 3. Sobras registradas de días anteriores
-    const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
+    // 3. Sobras de días anteriores (diferentes a lo de hoy)
+    const sobra = _elegirDeSobrasExcluyendo(sobrasBebe, platosActivos, yaComidosHoy);
     if(sobra){
       sobrasBebe[sobra.id]--;
       if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
@@ -947,12 +960,21 @@ const Menu = (() => {
         platosActivos, sobra, usadosBebe, usadosReciente, momento);
     }
 
-    // 4. Fallback: repite algo de lo que comió el bebé al mediodía si hay
-    // (nunca generar plato exclusivo de bebé en cena)
-    if(platosComidaHoy?.length){
-      return _completarPrimeroSegundo([platosComidaHoy[0]],
-        platosActivos, platosActivos.find(p=>p.id===platosComidaHoy[0].id),
-        usadosBebe, usadosReciente, momento);
+    // 4. Fallback: acepta repetir si no hay otra opción
+    const sobrasAny = _elegirDeSobras(sobrasBebe, platosActivos);
+    if(sobrasAny){
+      sobrasBebe[sobrasAny.id]--;
+      if(sobrasBebe[sobrasAny.id] <= 0) delete sobrasBebe[sobrasAny.id];
+      return _completarPrimeroSegundo([{id:sobrasAny.id,nombre:sobrasAny.nombre}],
+        platosActivos, sobrasAny, usadosBebe, usadosReciente, momento);
+    }
+
+    // Último recurso: plato de cena adultos aunque ya lo comiera
+    if(platoCenaAd){
+      const db = platosActivos.find(p=>p.id===platoCenaAd.id &&
+        (p.tipoMenu.includes('todos')||p.tipoMenu.includes('bebe')));
+      if(db) return _completarPrimeroSegundo([{id:db.id,nombre:db.nombre}],
+        platosActivos, db, usadosBebe, usadosReciente, momento);
     }
 
     return platosAdultos || [];
@@ -1083,6 +1105,14 @@ const Menu = (() => {
 
   function _elegirDeSobras(sobrasBebe, platosActivos) {
     const disponibles = Object.keys(sobrasBebe).filter(id => sobrasBebe[id] > 0);
+    if(!disponibles.length) return null;
+    disponibles.sort((a,b) => sobrasBebe[b] - sobrasBebe[a]);
+    return platosActivos.find(p => p.id === disponibles[0]) || null;
+  }
+
+  function _elegirDeSobrasExcluyendo(sobrasBebe, platosActivos, excluir) {
+    const disponibles = Object.keys(sobrasBebe)
+      .filter(id => sobrasBebe[id] > 0 && !excluir.has(id));
     if(!disponibles.length) return null;
     disponibles.sort((a,b) => sobrasBebe[b] - sobrasBebe[a]);
     return platosActivos.find(p => p.id === disponibles[0]) || null;
