@@ -630,10 +630,14 @@ const Menu = (() => {
 
         // 2. Bebé comida
         if(tieneBebe && blComida._bebeActivo){
+          // Pasa los días futuros para que el bebé solo tenga platos propios
+          // si los adultos los van a comer próximamente (minimizar cocciones)
+          const diasFuturos = dias.slice(di+1, di+3);  // próximos 2 días
           blComida.platosBebe = _generarBloqueBebeComida(
             blComida.platosMayores, platosActivos,
             usadosBebe, usadosReciente, artsPrioritarios,
-            sobrasBebe, cfgMenus, dia.facilComida, inventario||[]
+            sobrasBebe, cfgMenus, dia.facilComida, inventario||[],
+            diasFuturos
           );
         }
       }
@@ -677,12 +681,13 @@ const Menu = (() => {
           }
         }
 
-        // 2. Bebé cena
+        // 2. Bebé cena — usa lo que ya se cocinó (minimizar cocciones)
         if(tieneBebe && blCena._bebeActivo){
           blCena.platosBebe = _generarBloqueBebeConSobras(
             blCena.platosMayores, platosActivos,
             usadosBebe, usadosReciente, artsPrioritarios,
-            sobrasBebe, cfgMenus, dia.facilCena, 'cena', inventario||[]
+            sobrasBebe, cfgMenus, dia.facilCena, 'cena', inventario||[],
+            blComida.platosMayores  // platos que comieron los adultos al mediodía HOY
           );
         }
       }
@@ -815,21 +820,30 @@ const Menu = (() => {
    * Prioridad: compat con adultos → sobras → plato propio.
    * Siempre garantiza primero+segundo salvo plato único.
    */
+  /**
+   * Genera el bloque de bebé para la COMIDA.
+   * Regla principal: minimizar cocciones.
+   * Prioridad:
+   *   1. Platos de adultos ese día que son compatibles con bebé
+   *   2. Sobras de días anteriores (platos ya cocinados)
+   *   3. Plato propio de bebé SOLO si los adultos lo comerán en los próximos 2 días
+   *      (para evitar cocinar algo exclusivamente para el bebé)
+   */
   function _generarBloqueBebeComida(platosAdultos, platosActivos, usadosBebe,
-    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, inventario) {
+    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, inventario,
+    diasFuturos) {
 
-    // Platos de adultos que son compatibles con bebé
+    // 1. Platos de adultos compatibles con bebé ese mismo día
     const compatAdultos = (platosAdultos||[]).filter(pa => {
       const db = platosActivos.find(p => p.id === pa.id);
       return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
     });
 
     if(compatAdultos.length > 0){
-      // Bebé come lo mismo que adultos — asegurar que tenga primero+segundo si toca
       return _asegurarPrimeroSegundo(compatAdultos, platosActivos, usadosBebe, usadosReciente, 'comida');
     }
 
-    // Sobras disponibles
+    // 2. Sobras disponibles de días anteriores
     const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
     if(sobra){
       sobrasBebe[sobra.id]--;
@@ -838,36 +852,82 @@ const Menu = (() => {
         platosActivos, sobra, usadosBebe, usadosReciente, 'comida');
     }
 
-    // Plato propio de bebé
+    // 3. Plato propio de bebé:
+    //    - Si es tipoMenu:['bebe'] → se usa libremente (puré, etc., cocina específica)
+    //    - Si es tipoMenu:['todos'] → solo si los adultos lo comerán en próximos 2 días
     const cands = _filtrarCandidatosBebe(platosActivos, 'comida', usadosBebe, usadosReciente);
-    const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
-    if(p){
-      usadosBebe.push(p.id);
-      if((p.diasSobras||0) > 0) sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
-      return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
-        platosActivos, p, usadosBebe, usadosReciente, 'comida');
+    
+    // Primero intenta con platos exclusivos de bebé (sin restricción de adultos)
+    const candsSoloBebe = cands.filter(p => 
+      p.tipoMenu?.length === 1 && p.tipoMenu[0] === 'bebe'
+    );
+    const pSoloBebe = _elegirPlato(candsSoloBebe, [...artsPrioritarios], inventario);
+    if(pSoloBebe){
+      usadosBebe.push(pSoloBebe.id);
+      if((pSoloBebe.diasSobras||0) > 0) sobrasBebe[pSoloBebe.id] = (sobrasBebe[pSoloBebe.id]||0) + pSoloBebe.diasSobras;
+      return _completarPrimeroSegundo([{id:pSoloBebe.id,nombre:pSoloBebe.nombre}],
+        platosActivos, pSoloBebe, usadosBebe, usadosReciente, 'comida');
     }
 
-    return compatAdultos.length ? compatAdultos : (platosAdultos||[]);
+    // Platos 'todos' solo si adultos los comerán próximamente
+    const platosAdultosFuturos = new Set(
+      (diasFuturos||[]).flatMap(d =>
+        [...(d.comida?.platosMayores||[]), ...(d.cena?.platosMayores||[])]
+          .map(p => p.id)
+      )
+    );
+    const candsCompartidos = cands.filter(p => platosAdultosFuturos.has(p.id));
+    const platoBebe = candsCompartidos.length
+      ? _elegirPlato(candsCompartidos, [...artsPrioritarios], inventario)
+      : null;
+
+    if(platoBebe){
+      usadosBebe.push(platoBebe.id);
+      if((platoBebe.diasSobras||0) > 0) sobrasBebe[platoBebe.id] = (sobrasBebe[platoBebe.id]||0) + platoBebe.diasSobras;
+      return _completarPrimeroSegundo([{id:platoBebe.id,nombre:platoBebe.nombre}],
+        platosActivos, platoBebe, usadosBebe, usadosReciente, 'comida');
+    }
+
+    // Fallback: cualquier plato de bebé aunque no coincida con adultos
+    const pFallback = _elegirPlato(cands, [...artsPrioritarios], inventario);
+    if(pFallback){
+      usadosBebe.push(pFallback.id);
+      if((pFallback.diasSobras||0) > 0) sobrasBebe[pFallback.id] = (sobrasBebe[pFallback.id]||0) + pFallback.diasSobras;
+      return _completarPrimeroSegundo([{id:pFallback.id,nombre:pFallback.nombre}],
+        platosActivos, pFallback, usadosBebe, usadosReciente, 'comida');
+    }
+
+    return platosAdultos||[];
   }
 
   /**
    * Genera el bloque de bebé para la CENA.
-   * Prioridad: sobras → compat adultos → plato propio.
+   * Regla: minimizar cocciones — el bebé cena SIEMPRE lo que ya se cocinó.
+   * Prioridad:
+   *   1. Sobras del mediodía de ese mismo día (platosMayores comida)
+   *   2. Plato de cena de adultos si es compatible
+   *   3. Sobras de días anteriores registradas en sobrasBebe
+   *   4. NUNCA plato exclusivo de bebé en cena — si no hay nada, repite sobra disponible
    */
   function _generarBloqueBebeConSobras(platosAdultos, platosActivos, usadosBebe,
-    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, momento, inventario) {
+    usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, momento, inventario,
+    platosComidaHoy) {
 
-    // Sobras primero en cena
-    const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
-    if(sobra){
-      sobrasBebe[sobra.id]--;
-      if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
-      return _completarPrimeroSegundo([{id:sobra.id,nombre:sobra.nombre}],
-        platosActivos, sobra, usadosBebe, usadosReciente, momento);
+    // 1. Sobras del mediodía de HOY (lo que comieron los adultos al mediodía)
+    // Son los mejores candidatos — ya está cocinado y es del mismo día
+    if(platosComidaHoy?.length){
+      const compatHoy = platosComidaHoy.filter(pa => {
+        const db = platosActivos.find(p => p.id === pa.id);
+        return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
+      });
+      if(compatHoy.length > 0){
+        return _completarPrimeroSegundo([compatHoy[0]],
+          platosActivos, platosActivos.find(p=>p.id===compatHoy[0].id),
+          usadosBebe, usadosReciente, momento);
+      }
     }
 
-    // ¿Plato de adultos compatible con bebé?
+    // 2. Plato de cena de adultos si es compatible con bebé
     const platoCenaAd = (platosAdultos||[])[0];
     const dbCenaAd = platoCenaAd
       ? platosActivos.find(p => p.id===platoCenaAd.id &&
@@ -878,13 +938,21 @@ const Menu = (() => {
         platosActivos, dbCenaAd, usadosBebe, usadosReciente, momento);
     }
 
-    // Plato propio de bebé
-    const cands = _filtrarCandidatosBebe(platosActivos, momento, usadosBebe, usadosReciente);
-    const p = _elegirPlato(cands, [...artsPrioritarios], inventario);
-    if(p){
-      usadosBebe.push(p.id);
-      return _completarPrimeroSegundo([{id:p.id,nombre:p.nombre}],
-        platosActivos, p, usadosBebe, usadosReciente, momento);
+    // 3. Sobras registradas de días anteriores
+    const sobra = _elegirDeSobras(sobrasBebe, platosActivos);
+    if(sobra){
+      sobrasBebe[sobra.id]--;
+      if(sobrasBebe[sobra.id] <= 0) delete sobrasBebe[sobra.id];
+      return _completarPrimeroSegundo([{id:sobra.id,nombre:sobra.nombre}],
+        platosActivos, sobra, usadosBebe, usadosReciente, momento);
+    }
+
+    // 4. Fallback: repite algo de lo que comió el bebé al mediodía si hay
+    // (nunca generar plato exclusivo de bebé en cena)
+    if(platosComidaHoy?.length){
+      return _completarPrimeroSegundo([platosComidaHoy[0]],
+        platosActivos, platosActivos.find(p=>p.id===platosComidaHoy[0].id),
+        usadosBebe, usadosReciente, momento);
     }
 
     return platosAdultos || [];
