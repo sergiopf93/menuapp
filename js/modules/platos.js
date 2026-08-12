@@ -758,13 +758,13 @@ Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, L
         { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             contents:[{parts:[{text:prompt2}]}],
-            generationConfig:{ temperature:0, maxOutputTokens:800 }
+            generationConfig:{ temperature:0, maxOutputTokens:1200 }
           })
         }
       );
       const d2    = r2.ok ? await r2.json() : {};
       const text2 = (d2?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
-      console.log('[Gemini ING RAW]', JSON.stringify(text2?.slice(0,400)));
+      console.log('[Gemini ING RAW full]', JSON.stringify(text2));
       // Extrae el primer array JSON válido
       // Si hay strings truncados, los repara antes de parsear
       let ingredientes = [];
