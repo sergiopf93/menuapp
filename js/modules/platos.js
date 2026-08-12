@@ -747,24 +747,24 @@ etiquetas (max 2): verdura, legumbre, pescado-blanco, pescado-azul, carne-ave, c
 
       // Pide solo los ingredientes por nombre — sin URL, sin googleSearch
       // Prompt muy corto para evitar truncación
-      const prompt2 = `Dame los 8 ingredientes principales de la receta ${meta.nombre}.
-Responde solo con un JSON array sin markdown:
-[{"nombre":"tomate","cantidad":2,"unidad":"UN","categoria":"Frutas y verduras"}]
-Unidades válidas: UN KG GR L ML PAQ
-Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, Legumbres, Especias, Aceites y vinagres, Salsas y condimentos, Pan y bollería, Congelados, Bebidas`;
+      // Sin límite de ingredientes — formato compacto para evitar truncación
+      const prompt2 = `Ingredientes de "${meta.nombre}". JSON array, sin texto extra:
+[{"n":"tomate","c":2,"u":"UN","cat":"Frutas y verduras"}]
+u: UN KG GR L ML PAQ
+cat: Frutas y verduras|Carnicería|Pescadería|Lácteos|Conservas|Legumbres|Especias|Aceites y vinagres|Salsas y condimentos|Pan y bollería|Congelados|Bebidas`;
 
       const r2 = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             contents:[{parts:[{text:prompt2}]}],
-            generationConfig:{ temperature:0, maxOutputTokens:1200 }
+            generationConfig:{ temperature:0, maxOutputTokens:2000 }
           })
         }
       );
       const d2    = r2.ok ? await r2.json() : {};
       const text2 = (d2?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
-      console.log('[Gemini ING RAW full]', JSON.stringify(text2));
+      
       // Extrae el primer array JSON válido
       // Si hay strings truncados, los repara antes de parsear
       let ingredientes = [];
@@ -785,11 +785,26 @@ Categorías: Frutas y verduras, Carnicería, Pescadería, Lácteos, Conservas, L
         if(e>0) arrStr=arrStr.slice(0,e+1);
         // Intenta parsear directamente
         try {
-          ingredientes = JSON.parse(arrStr);
+          const parsed = JSON.parse(arrStr);
+          // Gemini puede devolver claves cortas (n/c/u/cat) o largas (nombre/cantidad/unidad/categoria)
+          ingredientes = parsed.map(ing => ({
+            nombre:    ing.nombre    || ing.n   || '',
+            cantidad:  ing.cantidad  || ing.c   || 1,
+            unidad:    ing.unidad    || ing.u   || 'UN',
+            categoria: ing.categoria || ing.cat || 'Otros',
+          })).filter(ing => ing.nombre);
         } catch {
           // Repara el array (strings sin cerrar, comas extra)
           const repaired = _repairJSON('[' + arrStr.slice(1));
-          try { ingredientes = JSON.parse(repaired); } catch {}
+          try {
+            const parsed = JSON.parse(repaired);
+            ingredientes = parsed.map(ing => ({
+              nombre:    ing.nombre    || ing.n   || '',
+              cantidad:  ing.cantidad  || ing.c   || 1,
+              unidad:    ing.unidad    || ing.u   || 'UN',
+              categoria: ing.categoria || ing.cat || 'Otros',
+            })).filter(ing => ing.nombre);
+          } catch {}
         }
       }
 
