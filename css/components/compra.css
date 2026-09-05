@@ -248,3 +248,15 @@
   max-height: 240px;
   overflow-y: auto;
 }
+
+/* ─── Crear artículo desde compra ───────────────────────────────── */
+.compra-sugg-crear {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.compra-sugg-crear:hover { background: var(--color-primary); color: white; }
