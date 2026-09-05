@@ -23,6 +23,50 @@ const Compra = (() => {
   // ── Estado local ─────────────────────────────────────────────────
   let _vista = 'lista';        // 'lista' | 'seleccion-super' | 'modo-compra'
   let _compraActual = null;    // objeto compra en curso
+
+  // ── Persistencia offline ─────────────────────────────────────────
+  // Guarda la lista en localStorage (inmediato, funciona offline)
+  // y encola la subida a Drive cuando haya conexión
+  
+  const COMPRA_LOCAL_KEY = 'menuapp_compra_actual';
+  let _pendingDriveSync = false;
+
+  function _guardarLocal(compra) {
+    try {
+      localStorage.setItem(COMPRA_LOCAL_KEY, JSON.stringify(compra));
+    } catch(e) {
+      console.warn('[Compra] Error guardando en local:', e);
+    }
+  }
+
+  function _cargarLocal() {
+    try {
+      const raw = localStorage.getItem(COMPRA_LOCAL_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  async function _sincronizarConDrive(compra) {
+    if (!compra) return;
+    try {
+      const fechaStr = compra.fechaCreacion?.replace(/-/g,'') || Dates.today().replace(/-/g,'');
+      await Drive.writeJson(`compras/compra_${fechaStr}.json`, compra);
+      _pendingDriveSync = false;
+    } catch(e) {
+      _pendingDriveSync = true;
+      console.warn('[Compra] Sin conexión, guardado solo en local');
+    }
+  }
+
+  // Intenta subir a Drive cuando vuelve la conexión
+  window.addEventListener('online', async () => {
+    if (_pendingDriveSync && _compraActual) {
+      await _sincronizarConDrive(_compraActual);
+      UI.showToast('Lista sincronizada con Drive ✓', 'success');
+    }
+  });
+
+
   let _superId = null;         // supermercado seleccionado
 
   // ── API pública ──────────────────────────────────────────────────
@@ -34,6 +78,16 @@ const Compra = (() => {
 
     // Intenta restaurar compra en curso desde el estado
     const state = App.getState();
+    // Carga la lista: primero del estado, luego de localStorage (offline)
+    if (state.compraActual) {
+      _compraActual = state.compraActual;
+    } else {
+      const localCompra = _cargarLocal();
+      if (localCompra) {
+        _compraActual = localCompra;
+        state.compraActual = localCompra;
+      }
+    }
     if (state.compraActual) {
       _compraActual = state.compraActual;
       _vista = _compraActual.estado === 'en_curso' ? 'modo-compra' : 'lista';
@@ -177,6 +231,14 @@ const Compra = (() => {
 
       <!-- Botón ir a comprar -->
       <div style="margin-top:var(--space-6)">
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-3)">
+          <button class="btn btn-secondary" id="compra-btn-guardar" style="flex:1">
+            💾 Guardar lista
+          </button>
+          <button class="btn btn-primary" style="flex:1" id="compra-btn-generar-nuevo">
+            🔄 Generar del menú
+          </button>
+        </div>
         <button class="btn btn-primary btn-full" id="compra-btn-ir" ${aComprar.length===0?'disabled':''}>
           🛒 Ir a comprar →
         </button>
@@ -270,6 +332,29 @@ const Compra = (() => {
       _compraActual = await _generarListaCompra(menu);
       App.getState().compraActual = _compraActual;
       _renderVista();
+    });
+
+    // Guardar lista manualmente
+    document.getElementById('compra-btn-guardar')?.addEventListener('click', async () => {
+      if (!_compraActual) return;
+      _guardarLocal(_compraActual);
+      await _sincronizarConDrive(_compraActual);
+      UI.showToast(_pendingDriveSync ? 'Guardado en local (sin conexión)' : 'Lista guardada ✓', 'success');
+    });
+
+    // Generar del último menú
+    document.getElementById('compra-btn-generar-nuevo')?.addEventListener('click', async () => {
+      const menuActual = App.getState().menuActual || await _buscarMenuActual();
+      if (!menuActual) { UI.showToast('No hay menú generado', 'error'); return; }
+      const ok = await UI.confirm('¿Generar nueva lista de la compra del menú? Los artículos manuales se conservarán.', 'Generar');
+      if (!ok) return;
+      const manuales = (_compraActual?.items||[]).filter(i=>i.esExtra);
+      _compraActual = await _generarListaCompra(menuActual);
+      _compraActual.items.push(...manuales);
+      App.getState().compraActual = _compraActual;
+      _guardarLocal(_compraActual);
+      _renderVista(view);
+      UI.showToast('Lista generada del menú', 'success');
     });
 
     document.getElementById('compra-btn-ir')?.addEventListener('click', () => {
@@ -382,7 +467,23 @@ const Compra = (() => {
           })
           .slice(0, 8);
 
-        if (!matches.length) { suggBox?.classList.add('hidden'); return; }
+        if (!matches.length) {
+          // No existe en el catálogo — ofrece crear el artículo
+          suggBox.innerHTML = `
+            <div class="compra-sugg-crear" data-nombre="${UI.escapeHtml(extraInput.value.trim())}">
+              <span>➕ Crear "<strong>${UI.escapeHtml(extraInput.value.trim())}</strong>" en el catálogo y añadir</span>
+            </div>`;
+          suggBox.classList.remove('hidden');
+          suggBox.querySelector('.compra-sugg-crear')?.addEventListener('mousedown', async (e) => {
+            e.preventDefault();
+            const nombre = extraInput.value.trim();
+            if (!nombre) return;
+            // Abre mini-formulario para completar los datos del artículo
+            await _crearArticuloDesdeCompra(nombre);
+            suggBox.classList.add('hidden');
+          });
+          return;
+        }
 
         suggBox.innerHTML = matches.map(a => `
           <div class="compra-sugg-item" data-nombre="${UI.escapeHtml(a.nombre)}" data-id="${a.id}">
@@ -790,6 +891,107 @@ const Compra = (() => {
       v.id='view-compra'; v.className='view';
       document.getElementById('app-content')?.appendChild(v);
     }
+  }
+
+  /**
+   * Mini-formulario para crear un artículo del catálogo directamente desde la lista de compra.
+   * Crea el artículo en el catálogo y lo añade a la lista en un solo paso.
+   */
+  async function _crearArticuloDesdeCompra(nombre) {
+    const CATEGORIAS = [
+      'Frutas y verduras','Carnicería','Pescadería','Lácteos','Conservas',
+      'Legumbres','Pasta, arroz y cereales','Especias','Aceites y vinagres',
+      'Salsas y condimentos','Charcutería y envasados','Pan y bollería',
+      'Repostería y panadería','Congelados','Bebidas','Limpieza',
+      'Droguería y perfumería','Snacks y frutos secos','Dulces y chocolates',
+      'Café e infusiones','Preparados y semiconservas','Otros',
+    ];
+
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+        "<strong>${UI.escapeHtml(nombre)}</strong>" no existe en el catálogo. 
+        Completa los datos para crearlo y añadirlo a la lista.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Categoría (sección del super) *</label>
+        <select class="form-control" id="cac-categoria">
+          ${CATEGORIAS.map(c=>`<option>${UI.escapeHtml(c)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:var(--space-3)">
+        <div class="form-group" style="flex:1">
+          <label class="form-label">Unidad</label>
+          <select class="form-control" id="cac-unidad">
+            ${['UN','KG','GR','L','ML','PAQ'].map(u=>`<option>${u}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label class="form-label">Cantidad habitual</label>
+          <input class="form-control" id="cac-cantidad" type="number" min="1" value="1"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notas (opcional)</label>
+        <input class="form-control" id="cac-notas" type="text" placeholder="Marca, formato..."/>
+      </div>`;
+
+    let modalRef = UI.showModal({
+      title: `Crear artículo — ${nombre}`,
+      content: container,
+      buttons: [
+        { label: 'Cancelar', type: 'secondary' },
+        { label: '✓ Crear y añadir a la lista', type: 'primary', onClick: async () => {
+          const categoria = document.getElementById('cac-categoria')?.value;
+          const unidad    = document.getElementById('cac-unidad')?.value || 'UN';
+          const cantidad  = parseInt(document.getElementById('cac-cantidad')?.value) || 1;
+          const notas     = document.getElementById('cac-notas')?.value.trim() || null;
+
+          // Crea en el catálogo
+          const state   = App.getState();
+          const catalogo= [...(state.catalogo||[])];
+          const ahora   = new Date().toISOString();
+          const nuevoArt = {
+            id: `cat-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+            nombre, categoria, unidad,
+            paqueteMinimo: cantidad,
+            unidadesPorPack: cantidad,
+            notas, activo: true, actualizadoEn: ahora,
+          };
+          catalogo.push(nuevoArt);
+          await App.setState('catalogo', catalogo);
+
+          // Añade a la lista de compra
+          if (_compraActual) {
+            const item = {
+              id: `extra-${Date.now()}`,
+              nombre, cantidad, unidad,
+              seccion: categoria,
+              paqueteMinimo: cantidad,
+              unidadesPorPack: cantidad,
+              enDespensa: false, comprado: false, noDisponible: false, esExtra: true,
+            };
+            _compraActual.items.push(item);
+            App.getState().compraActual = _compraActual;
+            _guardarLocal(_compraActual);
+
+            const lista = document.getElementById('compra-items-lista');
+            if (lista) {
+              const div = document.createElement('div');
+              div.innerHTML = _buildItemRevision(item);
+              lista.appendChild(div.firstElementChild);
+            }
+          }
+
+          UI.showToast(`${nombre} creado en el catálogo y añadido a la lista`, 'success');
+          if (modalRef) modalRef.close();
+
+          // Limpia el input de búsqueda
+          const extraInput = document.getElementById('compra-extra-input');
+          if (extraInput) extraInput.value = '';
+        }},
+      ],
+    });
   }
 
   return { render };

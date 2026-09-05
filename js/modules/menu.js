@@ -1198,41 +1198,62 @@ const Menu = (() => {
 
   // ── Popup platos ─────────────────────────────────────────────────
 
+  // Estado copiar/pegar entre celdas
+  let _portapapeles = null;  // { platos: [], label: '' }
+
   function _abrirPopupPlato(fecha, momento, perfil){
     const state = App.getState();
     const platosActivos = (state.platos||[]).filter(p=>p.activo!==false);
     const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
     const arr = perfil==='bebe' ? 'platosBebe' : 'platosMayores';
     const platosActuales = dia?.[momento]?.[arr] || [];
+    const esCenaAdulto = momento==='cena' && perfil==='mayores';
 
-    // Compatibilidad: bebé en cena también acepta platos de comida
+    // Sin filtro adulto/bebé — se muestran TODOS los platos
+    // Los platos de adultos llevan badge de advertencia cuando se asignan al bebé
     const compatibles = platosActivos.filter(p=>{
       const mOk = p.tipoComida?.includes(momento) || p.tipoComida?.includes('ambos') ||
                   (perfil==='bebe' && momento==='cena' && p.tipoComida?.includes('comida'));
-      const pOk = perfil==='bebe'
-        ? p.tipoMenu?.includes('bebe')||p.tipoMenu?.includes('todos')
-        : p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos');
-      return mOk && pOk;
+      return mOk;
     });
 
-    const soloUnicos   = compatibles.filter(p=>p.tipoPlato==='unico');
-    const primeros     = compatibles.filter(p=>p.tipoPlato==='primero');
-    const segundos     = compatibles.filter(p=>p.tipoPlato==='segundo');
-    const esCenaAdulto = momento==='cena' && perfil==='mayores';
+    const soloUnicos = compatibles.filter(p=>p.tipoPlato==='unico');
+    const primeros   = compatibles.filter(p=>p.tipoPlato==='primero');
+    const segundos   = compatibles.filter(p=>p.tipoPlato==='segundo');
 
     const container = document.createElement('div');
+    
+    // Barra de herramientas: copiar/pegar + checkbox sync
+    const tieneBebe = (state.config?.personas||[]).some(p=>p.tipo==='bebe');
+    const mostrarSync = tieneBebe && perfil==='mayores';
+
     container.innerHTML = `
-      <div class="search-bar" style="margin-bottom:var(--space-3)">
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="search" id="popup-plato-search" placeholder="Buscar..." autocomplete="off"/>
+      <!-- Toolbar: copiar/pegar + sync -->
+      <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" id="popup-btn-copiar" title="Copiar esta comida al portapapeles">
+          📋 Copiar comida
+        </button>
+        <button class="btn btn-secondary btn-sm" id="popup-btn-pegar"
+                style="${_portapapeles ? '' : 'opacity:0.4;pointer-events:none'}"
+                title="${_portapapeles ? 'Pegar: ' + _portapapeles.label : 'Portapapeles vacío'}">
+          📌 Pegar ${_portapapeles ? '('+_portapapeles.label+')' : ''}
+        </button>
+        ${mostrarSync ? `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;font-size:var(--font-size-xs)">
+            <input type="checkbox" id="popup-sync-bebe"/>
+            <span>Sync bebé</span>
+          </label>` : ''}
       </div>
 
-      <!-- Selección actual -->
+      <div class="search-bar" style="margin-bottom:var(--space-3)">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="search" id="popup-plato-search" placeholder="Buscar plato..." autocomplete="off"/>
+      </div>
+
       <div id="popup-seleccion-actual" style="margin-bottom:var(--space-3)">
         ${_buildSeleccionActual(platosActuales)}
       </div>
 
-      <!-- Tabs para filtrar por tipo -->
       <div class="pl-chips pl-chips--form" style="margin-bottom:var(--space-3)" id="popup-tabs">
         <button class="pl-chip active" data-tab="todos">Todos</button>
         <button class="pl-chip" data-tab="unico">🍽 Único</button>
@@ -1240,10 +1261,10 @@ const Menu = (() => {
         ${!esCenaAdulto ? '<button class="pl-chip" data-tab="segundo">2️⃣ Segundo</button>' : ''}
       </div>
 
-      <div id="popup-plato-list" class="popup-plato-list">${_buildPopupPlatos(compatibles,'')}</div>`;
+      <div id="popup-plato-list" class="popup-plato-list">${_buildPopupPlatos(compatibles,'',perfil)}</div>`;
 
     const modal = UI.showModal({
-      title: `Editar — ${momento==='comida'?'🍽 Comida':'🌙 Cena'} · ${perfil==='bebe'?'Bebé':'Adultos'}`,
+      title: `${momento==='comida'?'🍽 Comida':'🌙 Cena'} · ${perfil==='bebe'?'Bebé':'Adultos'}`,
       content: container,
     });
 
@@ -1262,9 +1283,39 @@ const Menu = (() => {
 
       function refresh() {
         const list = document.getElementById('popup-plato-list');
-        if(list) list.innerHTML = _buildPopupPlatos(getFiltrados(),'');
+        if(list) list.innerHTML = _buildPopupPlatos(getFiltrados(),'',perfil);
         _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
       }
+
+      // Copiar comida actual al portapapeles
+      document.getElementById('popup-btn-copiar')?.addEventListener('click', ()=>{
+        if(platosActuales.length){
+          _portapapeles = {
+            platos: [...platosActuales],
+            label: platosActuales.map(p=>p.nombre).join(' + '),
+          };
+          UI.showToast(`Copiado: ${_portapapeles.label}`,'success');
+          modal.close();
+        } else {
+          UI.showToast('No hay platos que copiar','info');
+        }
+      });
+
+      // Pegar del portapapeles
+      document.getElementById('popup-btn-pegar')?.addEventListener('click', ()=>{
+        if(!_portapapeles) return;
+        const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
+        if(!dia) return;
+        dia[momento][arr] = [..._portapapeles.platos];
+        _actualizarCeldaCalendario(fecha, momento, perfil, _portapapeles.platos);
+        // Si sync activo, también en bebé
+        if(document.getElementById('popup-sync-bebe')?.checked && perfil==='mayores'){
+          dia[momento].platosBebe = [..._portapapeles.platos];
+          _actualizarCeldaCalendario(fecha, momento, 'bebe', _portapapeles.platos);
+        }
+        UI.showToast(`Pegado: ${_portapapeles.label}`,'success');
+        modal.close();
+      });
 
       // Tabs
       container.querySelectorAll('#popup-tabs .pl-chip').forEach(btn=>{
@@ -1276,7 +1327,6 @@ const Menu = (() => {
         });
       });
 
-      // Búsqueda
       const inp = document.getElementById('popup-plato-search');
       inp?.focus();
       inp?.addEventListener('input',e=>{ filtroTexto=e.target.value.toLowerCase(); refresh(); });
@@ -1284,6 +1334,7 @@ const Menu = (() => {
       _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
     }, 100);
   }
+
 
   function _buildSeleccionActual(platos) {
     if(!platos.length) return '<p class="text-sm text-muted" style="margin-bottom:0">Sin platos asignados. Selecciona abajo.</p>';
@@ -1322,14 +1373,14 @@ const Menu = (() => {
         const platosArr = dia[momento][arr] || [];
         platosArr.splice(idx,1);
         dia[momento][arr] = platosArr;
-        // Actualiza selección actual en el popup
         const selEl = document.getElementById('popup-seleccion-actual');
         if(selEl) selEl.innerHTML = _buildSeleccionActual(platosArr);
         _actualizarCeldaCalendario(fecha, momento, perfil, platosArr);
-        // Re-bind
         _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
       });
     });
+
+    const syncBebe = () => document.getElementById('popup-sync-bebe')?.checked && perfil==='mayores';
 
     // Seleccionar plato
     document.querySelectorAll('.popup-plato-item').forEach(btn=>{
@@ -1341,33 +1392,40 @@ const Menu = (() => {
         const nuevoPlato = {id:btn.dataset.id, nombre:btn.dataset.nombre};
         const esCenaAdulto = momento==='cena' && perfil==='mayores';
 
+        let nuevos;
         if(esCenaAdulto || tipo==='unico') {
-          // Reemplaza todo
-          dia[momento][arr] = [nuevoPlato];
-          _actualizarCeldaCalendario(fecha, momento, perfil, [nuevoPlato]);
-          modal.close();
+          nuevos = [nuevoPlato];
         } else if(tipo==='primero') {
-          // Pone como primero, mantiene segundo si había
           const segundoExistente = platosArr.find(p=>{
             const db=(App.getState().platos||[]).find(pl=>pl.id===p.id);
             return db?.tipoPlato==='segundo';
           });
-          const nuevos = segundoExistente ? [nuevoPlato, segundoExistente] : [nuevoPlato];
-          dia[momento][arr] = nuevos;
-          _actualizarCeldaCalendario(fecha, momento, perfil, nuevos);
-          // No cierra el modal — permite añadir segundo
-          const selEl = document.getElementById('popup-seleccion-actual');
-          if(selEl) selEl.innerHTML = _buildSeleccionActual(nuevos);
-          _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+          nuevos = segundoExistente ? [nuevoPlato, segundoExistente] : [nuevoPlato];
         } else if(tipo==='segundo') {
-          // Añade como segundo, mantiene primero
           const primeroExistente = platosArr.find(p=>{
             const db=(App.getState().platos||[]).find(pl=>pl.id===p.id);
             return db?.tipoPlato==='primero';
           });
-          const nuevos = primeroExistente ? [primeroExistente, nuevoPlato] : [nuevoPlato];
-          dia[momento][arr] = nuevos;
-          _actualizarCeldaCalendario(fecha, momento, perfil, nuevos);
+          nuevos = primeroExistente ? [primeroExistente, nuevoPlato] : [nuevoPlato];
+        } else {
+          nuevos = [nuevoPlato];
+        }
+
+        dia[momento][arr] = nuevos;
+        _actualizarCeldaCalendario(fecha, momento, perfil, nuevos);
+
+        // Sync bebé si checkbox activo
+        if(syncBebe()){
+          dia[momento].platosBebe = [...nuevos];
+          _actualizarCeldaCalendario(fecha, momento, 'bebe', nuevos);
+        }
+
+        // Si es único o segundo cierra, si es primero permite añadir segundo
+        if(tipo==='primero' && !esCenaAdulto){
+          const selEl = document.getElementById('popup-seleccion-actual');
+          if(selEl) selEl.innerHTML = _buildSeleccionActual(nuevos);
+          _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
+        } else {
           modal.close();
         }
       });

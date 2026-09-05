@@ -22,6 +22,7 @@ const Configuracion = (() => {
     { id:'dias-especiales',label:'📅 Días especiales'  },
     { id:'generador',      label:'⚙️ Generador'         },
     { id:'notificaciones', label:'🔔 Notificaciones'   },
+    { id:'articulos',      label:'📦 Artículos'         },
     { id:'cuenta',         label:'👤 Cuenta'           },
   ];
 
@@ -71,6 +72,7 @@ const Configuracion = (() => {
       case 'dias-especiales': container.innerHTML = _buildDiasEspeciales();  _bindDiasEspEvents();        break;
       case 'generador':       container.innerHTML = _buildGenerador();       _bindGeneradorEvents();      break;
       case 'notificaciones':  container.innerHTML = _buildNotificaciones();  _bindNotifEvents();          break;
+      case 'articulos':       container.innerHTML = _buildArticulos();      _bindArticulosEvents();      break;
       case 'cuenta':          container.innerHTML = _buildCuenta();          _bindCuentaEvents();         break;
     }
   }
@@ -544,6 +546,188 @@ const Configuracion = (() => {
   }
 
   // ── Sección: Cuenta ──────────────────────────────────────────────
+
+
+  // ── Sección: Artículos del catálogo ─────────────────────────────
+
+  function _buildArticulos() {
+    const catalogo = (App.getState().catalogo||[]);
+    const total = catalogo.length;
+    return `
+      <div class="cfg-section">
+        <h2 class="cfg-section-title">Catálogo de artículos</h2>
+        <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+          ${total} artículos · Edita las cantidades habituales de compra y los datos de cada artículo.
+        </p>
+
+        <!-- Buscador -->
+        <div class="search-bar" style="margin-bottom:var(--space-3)">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="search" id="cfg-art-search" placeholder="Buscar artículo..." autocomplete="off"/>
+        </div>
+
+        <!-- Botón añadir -->
+        <button class="btn btn-primary btn-sm" id="cfg-art-btn-add" style="margin-bottom:var(--space-4)">
+          + Añadir artículo
+        </button>
+
+        <!-- Lista -->
+        <div id="cfg-art-list"></div>
+      </div>`;
+  }
+
+  function _bindArticulosEvents() {
+    const catalogo = () => App.getState().catalogo||[];
+    
+    function _renderArtList(filtro='') {
+      const list = document.getElementById('cfg-art-list');
+      if (!list) return;
+      const items = catalogo()
+        .filter(a => !filtro || a.nombre.toLowerCase().includes(filtro.toLowerCase()))
+        .sort((a,b) => a.nombre.localeCompare(b.nombre,'es'));
+
+      if (!items.length) {
+        list.innerHTML = '<p class="text-sm text-muted">Sin resultados.</p>';
+        return;
+      }
+
+      // Agrupa por categoría
+      const groups = {};
+      items.forEach(a => {
+        if (!groups[a.categoria]) groups[a.categoria] = [];
+        groups[a.categoria].push(a);
+      });
+
+      list.innerHTML = Object.entries(groups)
+        .sort(([a],[b]) => a.localeCompare(b,'es'))
+        .map(([cat, arts]) => `
+          <div style="margin-bottom:var(--space-4)">
+            <h3 class="cfg-section-title" style="font-size:var(--font-size-xs);margin-bottom:var(--space-2)">${UI.escapeHtml(cat)}</h3>
+            ${arts.map(a => `
+              <div class="cfg-item" data-id="${a.id}" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border)">
+                <span class="cfg-item-nombre" style="flex:1;font-size:var(--font-size-sm)">${UI.escapeHtml(a.nombre)}</span>
+                <span class="badge badge-gray" style="flex-shrink:0">${a.unidad}</span>
+                <span class="text-xs text-muted" style="flex-shrink:0">hab: ${a.cantidadHabitual||a.paqueteMinimo||1}</span>
+                <button class="btn btn-secondary btn-sm cfg-art-edit" data-id="${a.id}" style="padding:2px 8px;font-size:11px">Editar</button>
+              </div>`).join('')}
+          </div>`).join('');
+
+      list.querySelectorAll('.cfg-art-edit').forEach(btn => {
+        btn.addEventListener('click', () => _editarArticulo(btn.dataset.id, _renderArtList));
+      });
+    }
+
+    // Búsqueda
+    let timer;
+    document.getElementById('cfg-art-search')?.addEventListener('input', e => {
+      clearTimeout(timer);
+      timer = setTimeout(() => _renderArtList(e.target.value.trim()), 250);
+    });
+
+    // Añadir
+    document.getElementById('cfg-art-btn-add')?.addEventListener('click', () => {
+      _editarArticulo(null, _renderArtList);
+    });
+
+    _renderArtList();
+  }
+
+  async function _editarArticulo(id, onSave) {
+    const state = App.getState();
+    const art = id ? (state.catalogo||[]).find(a=>a.id===id) : null;
+    const CATEGORIAS = [
+      'Frutas y verduras','Carnicería','Pescadería','Lácteos','Conservas',
+      'Legumbres','Pasta, arroz y cereales','Especias','Aceites y vinagres',
+      'Salsas y condimentos','Charcutería y envasados','Pan y bollería',
+      'Repostería y panadería','Congelados','Bebidas','Limpieza',
+      'Droguería y perfumería','Snacks y frutos secos','Dulces y chocolates',
+      'Café e infusiones','Preparados y semiconservas','Otros',
+    ];
+
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Nombre *</label>
+        <input class="form-control" id="cfg-ae-nombre" type="text" value="${UI.escapeHtml(art?.nombre||'')}" placeholder="Nombre del artículo"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoría *</label>
+        <select class="form-control" id="cfg-ae-cat">
+          ${CATEGORIAS.map(c=>`<option ${art?.categoria===c?'selected':''}>${UI.escapeHtml(c)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:var(--space-3)">
+        <div class="form-group" style="flex:1">
+          <label class="form-label">Unidad</label>
+          <select class="form-control" id="cfg-ae-unidad">
+            ${['UN','KG','GR','L','ML','PAQ'].map(u=>`<option ${art?.unidad===u?'selected':''}>${u}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label class="form-label">Cantidad habitual de compra</label>
+          <input class="form-control" id="cfg-ae-cantidad" type="number" min="1" value="${art?.cantidadHabitual||art?.paqueteMinimo||1}"/>
+          <p class="form-hint">Cuánto sueles comprar normalmente.</p>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notas (opcional)</label>
+        <input class="form-control" id="cfg-ae-notas" type="text" value="${UI.escapeHtml(art?.notas||'')}" placeholder="Marca, formato..."/>
+      </div>
+      ${art ? `
+        <div style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--color-border)">
+          <button class="btn btn-danger btn-sm" id="cfg-ae-eliminar">🗑 Eliminar artículo</button>
+        </div>` : ''}`;
+
+    let modalRef = UI.showModal({
+      title: art ? `Editar — ${art.nombre}` : 'Añadir artículo',
+      content: container,
+      buttons: [
+        { label: 'Cancelar', type: 'secondary' },
+        { label: art ? 'Guardar' : 'Añadir', type: 'primary', onClick: async () => {
+          const nombre   = document.getElementById('cfg-ae-nombre')?.value.trim();
+          const categoria= document.getElementById('cfg-ae-cat')?.value;
+          const unidad   = document.getElementById('cfg-ae-unidad')?.value||'UN';
+          const cantidad = parseInt(document.getElementById('cfg-ae-cantidad')?.value)||1;
+          const notas    = document.getElementById('cfg-ae-notas')?.value.trim()||null;
+          if (!nombre) { UI.showToast('El nombre es obligatorio','error'); return; }
+
+          const catalogo = [...(App.getState().catalogo||[])];
+          const ahora    = new Date().toISOString();
+          if (art) {
+            const idx = catalogo.findIndex(a=>a.id===art.id);
+            catalogo[idx] = {...catalogo[idx], nombre, categoria, unidad,
+              cantidadHabitual: cantidad, paqueteMinimo: cantidad, notas, actualizadoEn: ahora};
+            UI.showToast(`${nombre} actualizado`, 'success');
+          } else {
+            catalogo.push({
+              id: `cat-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+              nombre, categoria, unidad, cantidadHabitual: cantidad,
+              paqueteMinimo: cantidad, notas, activo: true, actualizadoEn: ahora,
+            });
+            UI.showToast(`${nombre} añadido`, 'success');
+          }
+          await App.setState('catalogo', catalogo);
+          if (modalRef) modalRef.close();
+          if (onSave) onSave(document.getElementById('cfg-art-search')?.value||'');
+        }},
+      ],
+    });
+
+    // Eliminar
+    setTimeout(() => {
+      document.getElementById('cfg-ae-eliminar')?.addEventListener('click', async () => {
+        const ok = await UI.confirm(`¿Eliminar <strong>${UI.escapeHtml(art.nombre)}</strong>?`, 'Eliminar');
+        if (!ok) return;
+        const catalogo = (App.getState().catalogo||[]).filter(a=>a.id!==art.id);
+        await App.setState('catalogo', catalogo);
+        UI.showToast(`${art.nombre} eliminado`, 'success');
+        if (modalRef) modalRef.close();
+        if (onSave) onSave('');
+      });
+    }, 50);
+  }
 
   function _buildCuenta() {
     const user=Auth.getUserInfo();
