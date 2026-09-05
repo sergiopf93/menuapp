@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#1a6b3c" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -165,12 +165,20 @@
       </button>
     </div>
     <script>
-      document.getElementById('nav-more-btn')?.addEventListener('click', e => {
-        e.stopPropagation();
-        document.getElementById('nav-more-menu')?.classList.toggle('hidden');
+      // Botón "Más" — inline porque debe funcionar antes de que carguen los módulos
+      document.addEventListener('DOMContentLoaded', () => {
+        const moreBtn  = document.getElementById('nav-more-btn');
+        const moreMenu = document.getElementById('nav-more-menu');
+        function _closeMore() { moreMenu?.classList.add('hidden'); }
+        window._closeMore = _closeMore;
+        moreBtn?.addEventListener('click', e => {
+          e.stopPropagation();
+          moreMenu?.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (e) => {
+          if (!moreBtn?.contains(e.target)) _closeMore();
+        });
       });
-      function _closeMore() { document.getElementById('nav-more-menu')?.classList.add('hidden'); }
-      document.addEventListener('click', () => _closeMore());
     </script>
 
   </div><!-- /screen-app -->
