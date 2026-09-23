@@ -155,19 +155,16 @@ const Menu = (() => {
     lunesDate.setDate(hoyDate.getDate() + diffToLunes);
     const lunesStr = lunesDate.toISOString().slice(0, 10);
 
-    // Coge TODAS las columnas y encuentra la que corresponde al lunes de esta semana
-    // con el offsetLeft más grande (la más a la derecha = la del menú actual)
     const todasCols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
     if (!todasCols.length) return;
 
-    // Filtra columnas con fecha >= lunes de esta semana y coge la primera
-    const colsDesideLunes = todasCols.filter(c => c.dataset.fecha >= lunesStr);
-    const targetCol = colsDesideLunes.length ? colsDesideLunes[0] : todasCols[todasCols.length - 1];
-
+    // Primera columna con fecha >= lunes de esta semana
+    const targetCol = todasCols.find(c => c.dataset.fecha >= lunesStr)
+                   || todasCols[todasCols.length - 1];
     if (!targetCol) return;
 
-    const labelsW = scroll.previousElementSibling?.offsetWidth || 80;
-    scroll.scrollLeft = Math.max(0, targetCol.offsetLeft - labelsW);
+    // Scroll exacto al offsetLeft del lunes — lo pone como primera columna visible
+    scroll.scrollLeft = targetCol.offsetLeft;
   }
 
   // ── Combinar días ────────────────────────────────────────────────
