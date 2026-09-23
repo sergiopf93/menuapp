@@ -69,16 +69,10 @@ const Menu = (() => {
     const todosDias = _combinarDiasDeMenus(todosMenus);
     if (!todosDias.length) return null;
 
-    // Solo semana actual para el dashboard
-    const hoy     = Dates.today();
-    const hoyDate = new Date(hoy + 'T00:00:00');
-    const dow     = hoyDate.getDay();
-    const lunesDate = new Date(hoyDate);
-    lunesDate.setDate(hoyDate.getDate() + (dow === 0 ? -6 : 1 - dow));
-    const domDate = new Date(lunesDate);
-    domDate.setDate(lunesDate.getDate() + 6);
-    const lunesStr = lunesDate.toISOString().slice(0,10);
-    const domStr   = domDate.toISOString().slice(0,10);
+    // Solo semana actual para el dashboard (lun-dom usando Dates.startOfWeek)
+    const hoy      = Dates.today();
+    const lunesStr = Dates.startOfWeek(hoy);           // lunes de esta semana
+    const domStr   = Dates.addDays(lunesStr, 6);       // domingo de esta semana
 
     const diasSemana = todosDias.filter(d => d.fecha >= lunesStr && d.fecha <= domStr);
     if (!diasSemana.length) return null;
@@ -137,8 +131,8 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
-    // Scroll al lunes — doble requestAnimationFrame garantiza que el layout está listo
-    requestAnimationFrame(() => requestAnimationFrame(() => _scrollCalendarioAHoy()));
+    // Scroll al lunes — usar setTimeout robusto tras render completo
+    setTimeout(() => _scrollCalendarioAHoy(), 300);
   }
 
   // ── Scroll al lunes de semana actual ────────────────────────────
@@ -147,23 +141,17 @@ const Menu = (() => {
     const scroll = document.querySelector('.menu-cal-scroll');
     if (!scroll) return;
 
-    const hoy     = Dates.today();
-    const hoyDate = new Date(hoy + 'T00:00:00');
-    const dow     = hoyDate.getDay();
-    const diffToLunes = dow === 0 ? -6 : 1 - dow;
-    const lunesDate = new Date(hoyDate);
-    lunesDate.setDate(hoyDate.getDate() + diffToLunes);
-    const lunesStr = lunesDate.toISOString().slice(0, 10);
+    // Usa Dates.startOfWeek igual que el filtro de la home
+    const lunesStr = Dates.startOfWeek(Dates.today());
 
     const todasCols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
     if (!todasCols.length) return;
 
-    // Primera columna con fecha >= lunes de esta semana
+    // Primera columna cuya fecha sea >= lunes de esta semana
     const targetCol = todasCols.find(c => c.dataset.fecha >= lunesStr)
                    || todasCols[todasCols.length - 1];
     if (!targetCol) return;
 
-    // Scroll exacto al offsetLeft del lunes — lo pone como primera columna visible
     scroll.scrollLeft = targetCol.offsetLeft;
   }
 
