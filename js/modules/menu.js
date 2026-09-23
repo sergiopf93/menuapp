@@ -137,8 +137,8 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
-    // Scroll al lunes de la semana actual tras renderizar
-    requestAnimationFrame(()=>_scrollCalendarioAHoy());
+    // Scroll al lunes de la semana actual — setTimeout para asegurar que el DOM está listo
+    setTimeout(()=>_scrollCalendarioAHoy(), 100);
   }
 
   // ── Scroll al lunes de semana actual ────────────────────────────
@@ -146,6 +146,7 @@ const Menu = (() => {
   function _scrollCalendarioAHoy() {
     const scroll = document.querySelector('.menu-cal-scroll');
     if (!scroll) return;
+
     const hoy     = Dates.today();
     const hoyDate = new Date(hoy + 'T00:00:00');
     const dow     = hoyDate.getDay();
@@ -154,7 +155,10 @@ const Menu = (() => {
     lunesDate.setDate(hoyDate.getDate() + diffToLunes);
     const lunesStr = lunesDate.toISOString().slice(0, 10);
 
+    // Busca la columna del lunes de esta semana
     let targetCol = scroll.querySelector(`.menu-cal-col[data-fecha="${lunesStr}"]`);
+
+    // Si no existe exactamente el lunes, busca la más cercana disponible
     if (!targetCol) {
       const cols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
       if (!cols.length) return;
@@ -164,8 +168,16 @@ const Menu = (() => {
         return da < db ? col : best;
       }, cols[0]);
     }
+
     if (!targetCol) return;
-    const labelsW = scroll.querySelector('.menu-cal-labels')?.offsetWidth || 80;
+
+    // Si offsetLeft es 0 puede ser que el layout aún no esté listo — reintenta
+    if (targetCol.offsetLeft === 0 && targetCol !== scroll.querySelector('.menu-cal-col')) {
+      setTimeout(() => _scrollCalendarioAHoy(), 200);
+      return;
+    }
+
+    const labelsW = scroll.previousElementSibling?.offsetWidth || 80;
     scroll.scrollLeft = Math.max(0, targetCol.offsetLeft - labelsW);
   }
 
