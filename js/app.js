@@ -144,37 +144,71 @@ const App = (() => {
    * La caché local (IndexedDB) se usa solo como fallback offline.
    */
   async function _loadInitialData() {
-    UI.setLoadingMessage('Cargando catálogo de artículos...');
-    state.catalogo   = await Drive.readJson('catalogo.json')
-                       ?? await Storage.get('cache_catalogo.json')
-                       ?? [];
+    // ESTRATEGIA: carga caché local primero (instantáneo) → muestra la app
+    // → sincroniza con Drive en background → refresca si hay cambios
+    
+    // 1. Carga de caché local (IndexedDB) — muy rápido
+    const [cachedCatalogo, cachedInventario, cachedPlatos, cachedConfig] = await Promise.all([
+      Storage.get('cache_catalogo.json'),
+      Storage.get('cache_inventario.json'),
+      Storage.get('cache_platos.json'),
+      Storage.get('cache_config.json'),
+    ]);
 
-    UI.setLoadingMessage('Cargando inventario...');
-    state.inventario = await Drive.readJson('inventario.json')
-                       ?? await Storage.get('cache_inventario.json')
-                       ?? [];
+    state.catalogo   = cachedCatalogo   || [];
+    state.inventario = cachedInventario || [];
+    state.platos     = cachedPlatos     || [];
+    state.config     = cachedConfig     || _defaultConfig();
 
-    UI.setLoadingMessage('Cargando catálogo de platos...');
-    state.platos     = await Drive.readJson('platos.json')
-                       ?? await Storage.get('cache_platos.json')
-                       ?? [];
+    if (!state.config.version) state.config = _defaultConfig();
 
-    UI.setLoadingMessage('Cargando configuración...');
-    state.config     = await Drive.readJson('config.json')
-                       ?? await Storage.get('cache_config.json')
-                       ?? _defaultConfig();
+    // 2. Si hay caché, la app ya puede arrancar (la carga de Drive va en background)
+    const tieneCache = !!(cachedCatalogo || cachedPlatos);
 
-    // Si config no existía en Drive, la crea
-    if (!state.config.version) {
+    if (tieneCache) {
+      // Sincroniza con Drive en background sin bloquear el arranque
+      _sincronizarDriveBackground();
+    } else {
+      // Primera vez o caché vacía: carga Drive bloqueante (necesario)
+      UI.setLoadingMessage('Primera carga — conectando con Drive...');
+      await _cargarDesdeDrive();
+    }
+  }
+
+  async function _cargarDesdeDrive() {
+    const [catalogo, inventario, platos, config] = await Promise.all([
+      Drive.readJson('catalogo.json'),
+      Drive.readJson('inventario.json'),
+      Drive.readJson('platos.json'),
+      Drive.readJson('config.json'),
+    ]);
+
+    if (catalogo)   state.catalogo   = catalogo;
+    if (inventario) state.inventario = inventario;
+    if (platos)     state.platos     = platos;
+    if (config)     state.config     = config;
+    if (!state.config?.version) {
       state.config = _defaultConfig();
       await Drive.writeJson('config.json', state.config);
     }
 
-    // Actualiza la caché local con los datos frescos de Drive
-    await Storage.set('cache_catalogo.json',   state.catalogo);
-    await Storage.set('cache_inventario.json', state.inventario);
-    await Storage.set('cache_platos.json',     state.platos);
-    await Storage.set('cache_config.json',     state.config);
+    await Promise.all([
+      Storage.set('cache_catalogo.json',   state.catalogo),
+      Storage.set('cache_inventario.json', state.inventario),
+      Storage.set('cache_platos.json',     state.platos),
+      Storage.set('cache_config.json',     state.config),
+    ]);
+  }
+
+  async function _sincronizarDriveBackground() {
+    try {
+      await _cargarDesdeDrive();
+      // Re-renderiza la vista activa si los datos cambiaron
+      const view = document.querySelector('.view.active');
+      if (view?.id === 'view-dashboard') _renderDashboard();
+    } catch(e) {
+      console.warn('[App] Sync Drive background falló, usando caché:', e.message);
+    }
   }
 
   // ── Navegación ───────────────────────────────────────────────────
