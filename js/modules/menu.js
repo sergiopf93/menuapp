@@ -145,7 +145,7 @@ const Menu = (() => {
 
   function _scrollCalendarioAHoy() {
     const scroll = document.querySelector('.menu-cal-scroll');
-    if (!scroll) return;
+    if (!scroll) { console.log('[scroll] no encontró .menu-cal-scroll'); return; }
 
     const hoy     = Dates.today();
     const hoyDate = new Date(hoy + 'T00:00:00');
@@ -155,29 +155,31 @@ const Menu = (() => {
     lunesDate.setDate(hoyDate.getDate() + diffToLunes);
     const lunesStr = lunesDate.toISOString().slice(0, 10);
 
-    // Busca la columna del lunes de esta semana
-    let targetCol = scroll.querySelector(`.menu-cal-col[data-fecha="${lunesStr}"]`);
+    const todasCols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
+    console.log('[scroll] hoy:', hoy, '→ lunes buscado:', lunesStr);
+    console.log('[scroll] columnas encontradas:', todasCols.map(c=>c.dataset.fecha));
 
-    // Si no existe exactamente el lunes, busca la más cercana disponible
+    let targetCol = scroll.querySelector(`.menu-cal-col[data-fecha="${lunesStr}"]`);
     if (!targetCol) {
-      const cols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
-      if (!cols.length) return;
-      targetCol = cols.reduce((best, col) => {
+      if (!todasCols.length) { console.log('[scroll] sin columnas'); return; }
+      targetCol = todasCols.reduce((best, col) => {
         const da = Math.abs(new Date(col.dataset.fecha) - lunesDate);
         const db = Math.abs(new Date(best.dataset.fecha) - lunesDate);
         return da < db ? col : best;
-      }, cols[0]);
+      }, todasCols[0]);
+      console.log('[scroll] lunes no encontrado, usando más cercano:', targetCol?.dataset.fecha);
+    } else {
+      console.log('[scroll] lunes encontrado:', lunesStr, 'offsetLeft:', targetCol.offsetLeft);
     }
 
     if (!targetCol) return;
-
-    // Si offsetLeft es 0 puede ser que el layout aún no esté listo — reintenta
-    if (targetCol.offsetLeft === 0 && targetCol !== scroll.querySelector('.menu-cal-col')) {
+    if (targetCol.offsetLeft === 0 && targetCol !== todasCols[0]) {
       setTimeout(() => _scrollCalendarioAHoy(), 200);
       return;
     }
 
     const labelsW = scroll.previousElementSibling?.offsetWidth || 80;
+    console.log('[scroll] labelsW:', labelsW, 'scrollLeft será:', targetCol.offsetLeft - labelsW);
     scroll.scrollLeft = Math.max(0, targetCol.offsetLeft - labelsW);
   }
 
