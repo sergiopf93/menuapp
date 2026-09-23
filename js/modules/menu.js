@@ -145,7 +145,7 @@ const Menu = (() => {
 
   function _scrollCalendarioAHoy() {
     const scroll = document.querySelector('.menu-cal-scroll');
-    if (!scroll) { console.log('[scroll] no encontró .menu-cal-scroll'); return; }
+    if (!scroll) return;
 
     const hoy     = Dates.today();
     const hoyDate = new Date(hoy + 'T00:00:00');
@@ -155,31 +155,18 @@ const Menu = (() => {
     lunesDate.setDate(hoyDate.getDate() + diffToLunes);
     const lunesStr = lunesDate.toISOString().slice(0, 10);
 
+    // Coge TODAS las columnas y encuentra la que corresponde al lunes de esta semana
+    // con el offsetLeft más grande (la más a la derecha = la del menú actual)
     const todasCols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
-    console.log('[scroll] hoy:', hoy, '→ lunes buscado:', lunesStr);
-    console.log('[scroll] columnas encontradas:', todasCols.map(c=>c.dataset.fecha));
+    if (!todasCols.length) return;
 
-    let targetCol = scroll.querySelector(`.menu-cal-col[data-fecha="${lunesStr}"]`);
-    if (!targetCol) {
-      if (!todasCols.length) { console.log('[scroll] sin columnas'); return; }
-      targetCol = todasCols.reduce((best, col) => {
-        const da = Math.abs(new Date(col.dataset.fecha) - lunesDate);
-        const db = Math.abs(new Date(best.dataset.fecha) - lunesDate);
-        return da < db ? col : best;
-      }, todasCols[0]);
-      console.log('[scroll] lunes no encontrado, usando más cercano:', targetCol?.dataset.fecha);
-    } else {
-      console.log('[scroll] lunes encontrado:', lunesStr, 'offsetLeft:', targetCol.offsetLeft);
-    }
+    // Filtra columnas con fecha >= lunes de esta semana y coge la primera
+    const colsDesideLunes = todasCols.filter(c => c.dataset.fecha >= lunesStr);
+    const targetCol = colsDesideLunes.length ? colsDesideLunes[0] : todasCols[todasCols.length - 1];
 
     if (!targetCol) return;
-    if (targetCol.offsetLeft === 0 && targetCol !== todasCols[0]) {
-      setTimeout(() => _scrollCalendarioAHoy(), 200);
-      return;
-    }
 
     const labelsW = scroll.previousElementSibling?.offsetWidth || 80;
-    console.log('[scroll] labelsW:', labelsW, 'scrollLeft será:', targetCol.offsetLeft - labelsW);
     scroll.scrollLeft = Math.max(0, targetCol.offsetLeft - labelsW);
   }
 
