@@ -346,15 +346,40 @@ const Compra = (() => {
     document.getElementById('compra-btn-generar-nuevo')?.addEventListener('click', async () => {
       const menuActual = App.getState().menuActual || await _buscarMenuActual();
       if (!menuActual) { UI.showToast('No hay menú generado', 'error'); return; }
-      const ok = await UI.confirm('¿Generar nueva lista de la compra del menú? Los artículos manuales se conservarán.', 'Generar');
+      const ok = await UI.confirm(
+        'El menú añadirá sus ingredientes a la lista actual. Los artículos que ya estén en la lista no se duplicarán.',
+        'Añadir ingredientes del menú'
+      );
       if (!ok) return;
-      const manuales = (_compraActual?.items||[]).filter(i=>i.esExtra);
-      _compraActual = await _generarListaCompra(menuActual);
-      _compraActual.items.push(...manuales);
+
+      // Genera lista del menú
+      const listaMenu = await _generarListaCompra(menuActual);
+
+      // Si no hay lista actual, la crea
+      if (!_compraActual) {
+        _compraActual = {
+          id: `compra-${Date.now()}`,
+          menuId: 'manual',
+          fechaCreacion: Dates.today(),
+          supermercadoId: null,
+          items: [],
+          estado: 'pendiente',
+          fechaCierre: null,
+        };
+      }
+
+      // Añade solo los artículos que no existan ya (por nombre, case-insensitive)
+      const nombresExistentes = new Set(
+        (_compraActual.items||[]).map(i=>i.nombre.toLowerCase().trim())
+      );
+      const nuevos = (listaMenu.items||[]).filter(i =>
+        !nombresExistentes.has(i.nombre.toLowerCase().trim())
+      );
+      _compraActual.items = [...(_compraActual.items||[]), ...nuevos];
       App.getState().compraActual = _compraActual;
       _guardarLocal(_compraActual);
       _renderVista(view);
-      UI.showToast('Lista generada del menú', 'success');
+      UI.showToast(`${nuevos.length} artículos del menú añadidos a la lista`, 'success');
     });
 
     document.getElementById('compra-btn-ir')?.addEventListener('click', () => {
@@ -558,7 +583,14 @@ const Compra = (() => {
   // ── Vista 3: Modo compra ─────────────────────────────────────────
 
   function _renderModoCompra(view) {
-    const items = _compraActual.items.filter(i=>!i.enDespensa);
+    // Usa siempre la versión más actualizada de la lista
+    const compraViva = App.getState().compraActual || _compraActual;
+    if (!_compraActual || compraViva !== _compraActual) {
+      _compraActual = compraViva;
+    }
+
+    // Muestra TODOS los ítems (no filtra enDespensa en modo compra)
+    const items = (_compraActual?.items||[]);
     const comprados  = items.filter(i=>i.comprado).length;
     const total      = items.length;
     const pct = total>0 ? Math.round(comprados/total*100) : 0;
@@ -597,7 +629,7 @@ const Compra = (() => {
 
       <div class="compra-modo-footer">
         <button class="btn btn-primary btn-full" id="compra-btn-cerrar">
-          ✓ Cerrar compra y actualizar despensa
+          ✓ Terminar compra
         </button>
       </div>
     `;
@@ -681,48 +713,10 @@ const Compra = (() => {
 
   async function _cerrarCompra() {
     const btn = document.getElementById('compra-btn-cerrar');
-    if (btn) { btn.disabled=true; btn.textContent='Actualizando despensa...'; }
+    if (btn) { btn.disabled=true; btn.textContent='Guardando...'; }
 
-    const state = App.getState();
-    let inventario = [...(state.inventario||[])];
-
-    // Actualiza inventario con lo comprado
-    const comprados = _compraActual.items.filter(i=>i.comprado && !i.enDespensa);
-    for (const item of comprados) {
-      // Busca si ya existe en el inventario (por nombre)
-      const idx = inventario.findIndex(i=>i.nombre.toLowerCase()===item.nombre.toLowerCase());
-      if (idx !== -1) {
-        // Suma al stock existente
-        inventario[idx] = {
-          ...inventario[idx],
-          cantidad: parseFloat((inventario[idx].cantidad + item.cantidad).toFixed(2)),
-          actualizadoEn: new Date().toISOString(),
-        };
-      } else {
-        // Crea un nuevo artículo en el inventario
-        const artCatalogo = (state.catalogo||[]).find(a=>a.nombre.toLowerCase()===item.nombre.toLowerCase());
-        inventario.push({
-          id: `art-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
-          nombre: item.nombre,
-          categoria: item.seccion,
-          ubicacion: 'exterior',
-          cantidad: item.cantidad,
-          unidad: item.unidad,
-          fechaCaducidad: null,
-          fechaPreferenciaUso: null,
-          notificacionPreviaUso: false,
-          horasNotificacionPrevia: 24,
-          notas: null,
-          forzarUso: false,
-          paqueteMinimo: artCatalogo?.paqueteMinimo || 1,
-          actualizadoEn: new Date().toISOString(),
-        });
-      }
-    }
-
-    await App.setState('inventario', inventario);
-
-    // Marca la compra como completada
+    // Solo marca la compra como completada — NO actualiza la despensa
+    // El usuario actualiza la despensa manualmente cuando lo decide
     _compraActual.estado = 'completada';
     _compraActual.fechaCierre = new Date().toISOString();
 

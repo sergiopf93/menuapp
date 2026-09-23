@@ -307,7 +307,7 @@ const Platos = (() => {
 
   // ── Formulario ───────────────────────────────────────────────────
 
-  function openForm(id=null) {
+  function openForm(id=null, onSave=null) {
     const state = App.getState();
     const plato = id?(state.platos||[]).find(p=>p.id===id):null;
     const catalogo = Articulos.getCatalogo();
@@ -321,7 +321,10 @@ const Platos = (() => {
         {label:'Cancelar',type:'secondary'},
         {label:plato?'Guardar cambios':'Añadir plato',type:'primary',onClick:async()=>{
           const ok = await _submitForm(plato, container);
-          if(ok && modalRef) modalRef.close();
+          if(ok && modalRef) {
+            modalRef.close();
+            if (onSave) onSave();
+          }
         }},
       ],
     });
@@ -486,7 +489,12 @@ const Platos = (() => {
 
       <!-- Ingredientes -->
       <div class="form-group">
-        <label class="form-label">Ingredientes del catálogo</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)">
+          <label class="form-label" style="margin:0">Ingredientes del catálogo</label>
+          <button type="button" class="btn btn-secondary btn-sm" id="pl-btn-add-to-compra" style="font-size:11px">
+            🛒 Añadir a la lista de la compra
+          </button>
+        </div>
         <div id="pl-f-ingredientes">
           ${ingredientes.map((ing,i) => _buildIngredienteRow(ing, i, catalogo)).join('')}
         </div>
@@ -531,6 +539,64 @@ const Platos = (() => {
   }
 
   function _initFormEvents(catalogo, container) {
+    // Añadir ingredientes del plato a la lista de la compra
+    document.getElementById('pl-btn-add-to-compra')?.addEventListener('click', () => {
+      const rows = document.querySelectorAll('#pl-f-ingredientes .pl-ing-row');
+      if (!rows.length) { UI.showToast('No hay ingredientes en este plato', 'info'); return; }
+
+      const state   = App.getState();
+      const catalogo = state.catalogo || [];
+      const compra  = state.compraActual;
+
+      let añadidos = 0, yaExistian = 0;
+      const itemsCompra = compra?.items ? [...compra.items] : [];
+      const nombresExistentes = new Set(itemsCompra.map(i=>i.nombre.toLowerCase().trim()));
+
+      rows.forEach(row => {
+        const nombre = row.querySelector('[data-field="nombre"]')?.value.trim();
+        if (!nombre) return;
+        const key = nombre.toLowerCase().trim();
+        if (nombresExistentes.has(key)) { yaExistian++; return; }
+
+        const cat  = row.querySelector('[data-field="categoria"]')?.value.trim() || 'Otros';
+        const qty  = parseFloat(row.querySelector('[data-field="cantidad"]')?.value) || 1;
+        const uni  = row.querySelector('[data-field="unidad"]')?.value || 'UN';
+        const artCatalogo = catalogo.find(a => a.nombre.toLowerCase() === key);
+
+        itemsCompra.push({
+          id:           `extra-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+          nombre:       artCatalogo?.nombre || nombre,
+          cantidad:     artCatalogo?.cantidadHabitual || qty,
+          unidad:       artCatalogo?.unidad || uni,
+          seccion:      artCatalogo?.categoria || cat,
+          paqueteMinimo:artCatalogo?.paqueteMinimo || 1,
+          enDespensa:   false, comprado: false, noDisponible: false, esExtra: true,
+        });
+        nombresExistentes.add(key);
+        añadidos++;
+      });
+
+      if (!compra) {
+        state.compraActual = {
+          id: `compra-${Date.now()}`, menuId: 'manual',
+          fechaCreacion: new Date().toISOString().slice(0,10),
+          supermercadoId: null, items: itemsCompra,
+          estado: 'pendiente', fechaCierre: null,
+        };
+      } else {
+        compra.items = itemsCompra;
+      }
+
+      // Guarda en localStorage
+      try { localStorage.setItem('menuapp_compra_actual', JSON.stringify(state.compraActual)); } catch{}
+
+      const msg = añadidos > 0
+        ? `${añadidos} ingrediente${añadidos!==1?'s':''} añadido${añadidos!==1?'s':''} a la lista`
+          + (yaExistian ? ` (${yaExistian} ya estaban)` : '')
+        : `Todos los ingredientes ya estaban en la lista`;
+      UI.showToast(msg, añadidos > 0 ? 'success' : 'info');
+    });
+
     // Toggle notif
     const notifCb=document.getElementById('pl-f-notif-cb');
     const notifBlock=document.getElementById('pl-f-notif-block');

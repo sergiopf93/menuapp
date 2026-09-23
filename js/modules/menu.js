@@ -123,6 +123,48 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
+
+    // Scroll al lunes de la semana actual (o día más próximo al hoy)
+    requestAnimationFrame(()=>_scrollCalendarioAHoy());
+  }
+
+  // ── Scroll al lunes de la semana actual ─────────────────────────
+
+  function _scrollCalendarioAHoy() {
+    const wrapper = document.querySelector('.menu-calendario-wrapper');
+    const scroll  = wrapper?.querySelector('.menu-cal-scroll');
+    if (!scroll) return;
+
+    const hoy = Dates.today();
+    // Busca el lunes de la semana actual (o el día más cercano a hoy)
+    const cols = [...scroll.querySelectorAll('[data-fecha]')];
+    if (!cols.length) return;
+
+    // Encuentra el lunes de la semana en curso
+    const fechas = cols.map(c=>c.dataset.fecha).filter(Boolean);
+    // Calcula el lunes de esta semana
+    const hoyDate = new Date(hoy+'T00:00:00');
+    const dow = hoyDate.getDay(); // 0=dom,1=lun...6=sab
+    const diffToLunes = dow===0 ? -6 : 1-dow;
+    const lunesDate = new Date(hoyDate);
+    lunesDate.setDate(hoyDate.getDate()+diffToLunes);
+    const lunesStr = lunesDate.toISOString().slice(0,10);
+
+    // Busca la columna del lunes, o si no existe la más cercana
+    let targetFecha = lunesStr;
+    if (!fechas.includes(lunesStr)) {
+      targetFecha = fechas.reduce((closest,f) =>
+        Math.abs(new Date(f)-lunesDate) < Math.abs(new Date(closest)-lunesDate) ? f : closest
+      , fechas[0]);
+    }
+
+    const col = scroll.querySelector(`[data-fecha="${targetFecha}"]`);
+    if (col) {
+      // Scroll horizontal al lunes
+      const colLeft   = col.offsetLeft;
+      const headerW   = scroll.querySelector('.menu-cal-labels')?.offsetWidth || 80;
+      scroll.scrollLeft = Math.max(0, colLeft - headerW);
+    }
   }
 
   // ── Combinar días ────────────────────────────────────────────────
@@ -1228,7 +1270,7 @@ const Menu = (() => {
     const mostrarSync = tieneBebe && perfil==='mayores';
 
     container.innerHTML = `
-      <!-- Toolbar: copiar/pegar + sync -->
+      <!-- Toolbar: copiar/pegar + sync + crear plato -->
       <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" id="popup-btn-copiar" title="Copiar esta comida al portapapeles">
           📋 Copiar comida
@@ -1237,6 +1279,9 @@ const Menu = (() => {
                 style="${_portapapeles ? '' : 'opacity:0.4;pointer-events:none'}"
                 title="${_portapapeles ? 'Pegar: ' + _portapapeles.label : 'Portapapeles vacío'}">
           📌 Pegar ${_portapapeles ? '('+_portapapeles.label+')' : ''}
+        </button>
+        <button class="btn btn-secondary btn-sm" id="popup-btn-crear-plato" title="Crear un plato nuevo">
+          ➕ Crear plato
         </button>
         ${mostrarSync ? `
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;font-size:var(--font-size-xs)">
@@ -1286,6 +1331,16 @@ const Menu = (() => {
         if(list) list.innerHTML = _buildPopupPlatos(getFiltrados(),'',perfil);
         _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
       }
+
+      // Crear plato nuevo desde aquí
+      document.getElementById('popup-btn-crear-plato')?.addEventListener('click', () => {
+        modal.close();
+        // Abre el formulario de platos y al guardar vuelve al menú
+        Platos.openForm(null, () => {
+          // Refresca la lista de platos en el popup y reabre
+          setTimeout(() => _abrirPopupPlato(fecha, momento, perfil), 300);
+        });
+      });
 
       // Copiar comida actual al portapapeles
       document.getElementById('popup-btn-copiar')?.addEventListener('click', ()=>{
