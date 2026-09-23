@@ -589,7 +589,7 @@ const App = (() => {
    */
   function _registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch((err) => {
+      navigator.serviceWorker.register('/menuapp/service-worker.js').catch((err) => {
         console.warn('[App] Service Worker no registrado:', err.message);
       });
     }
