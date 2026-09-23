@@ -48,30 +48,44 @@ const Menu = (() => {
 
   /** Devuelve el HTML del calendario para usarlo en el dashboard.
    *  Usa el menuActual del estado si está disponible para evitar llamadas a Drive. */
+  /** Devuelve el HTML del calendario para el DASHBOARD — solo semana actual */
   async function getCalendarioHTML() {
     const state = App.getState();
     let todosMenus = [];
 
-    // Intenta usar el menú ya cargado en el estado
     if (state.menuActual) {
       todosMenus = [state.menuActual];
     } else {
-      // Va a Drive con timeout de 5s para no colgar el dashboard
       try {
         const timeoutPromise = new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')),5000));
         const drivePromise = Drive.listMenuFiles().catch(()=>[]);
         const menusEnDrive = await Promise.race([drivePromise, timeoutPromise]).catch(()=>[]);
-        for (const f of menusEnDrive.slice(0,3)) {  // máximo 3 para no tardar
+        for (const f of menusEnDrive.slice(0,3)) {
           try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
         }
       } catch { todosMenus = []; }
     }
 
-    const diasCombinados = _combinarDiasDeMenus(todosMenus);
-    if (!diasCombinados.length) return null;
-    const config = state.config||{};
+    const todosDias = _combinarDiasDeMenus(todosMenus);
+    if (!todosDias.length) return null;
+
+    // Solo semana actual para el dashboard
+    const hoy     = Dates.today();
+    const hoyDate = new Date(hoy + 'T00:00:00');
+    const dow     = hoyDate.getDay();
+    const lunesDate = new Date(hoyDate);
+    lunesDate.setDate(hoyDate.getDate() + (dow === 0 ? -6 : 1 - dow));
+    const domDate = new Date(lunesDate);
+    domDate.setDate(lunesDate.getDate() + 6);
+    const lunesStr = lunesDate.toISOString().slice(0,10);
+    const domStr   = domDate.toISOString().slice(0,10);
+
+    const diasSemana = todosDias.filter(d => d.fecha >= lunesStr && d.fecha <= domStr);
+    if (!diasSemana.length) return null;
+
+    const config    = state.config||{};
     const tieneBebe = (config.personas||[]).some(p=>p.tipo==='bebe');
-    return _buildCalendario(diasCombinados, tieneBebe);
+    return _buildCalendario(diasSemana, tieneBebe);
   }
 
   // ── Vista principal ──────────────────────────────────────────────
@@ -123,48 +137,36 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
-
-    // Scroll al lunes de la semana actual (o día más próximo al hoy)
+    // Scroll al lunes de la semana actual tras renderizar
     requestAnimationFrame(()=>_scrollCalendarioAHoy());
   }
 
-  // ── Scroll al lunes de la semana actual ─────────────────────────
+  // ── Scroll al lunes de semana actual ────────────────────────────
 
   function _scrollCalendarioAHoy() {
-    const wrapper = document.querySelector('.menu-calendario-wrapper');
-    const scroll  = wrapper?.querySelector('.menu-cal-scroll');
+    const scroll = document.querySelector('.menu-cal-scroll');
     if (!scroll) return;
-
-    const hoy = Dates.today();
-    // Busca el lunes de la semana actual (o el día más cercano a hoy)
-    const cols = [...scroll.querySelectorAll('[data-fecha]')];
-    if (!cols.length) return;
-
-    // Encuentra el lunes de la semana en curso
-    const fechas = cols.map(c=>c.dataset.fecha).filter(Boolean);
-    // Calcula el lunes de esta semana
-    const hoyDate = new Date(hoy+'T00:00:00');
-    const dow = hoyDate.getDay(); // 0=dom,1=lun...6=sab
-    const diffToLunes = dow===0 ? -6 : 1-dow;
+    const hoy     = Dates.today();
+    const hoyDate = new Date(hoy + 'T00:00:00');
+    const dow     = hoyDate.getDay();
+    const diffToLunes = dow === 0 ? -6 : 1 - dow;
     const lunesDate = new Date(hoyDate);
-    lunesDate.setDate(hoyDate.getDate()+diffToLunes);
-    const lunesStr = lunesDate.toISOString().slice(0,10);
+    lunesDate.setDate(hoyDate.getDate() + diffToLunes);
+    const lunesStr = lunesDate.toISOString().slice(0, 10);
 
-    // Busca la columna del lunes, o si no existe la más cercana
-    let targetFecha = lunesStr;
-    if (!fechas.includes(lunesStr)) {
-      targetFecha = fechas.reduce((closest,f) =>
-        Math.abs(new Date(f)-lunesDate) < Math.abs(new Date(closest)-lunesDate) ? f : closest
-      , fechas[0]);
+    let targetCol = scroll.querySelector(`.menu-cal-col[data-fecha="${lunesStr}"]`);
+    if (!targetCol) {
+      const cols = [...scroll.querySelectorAll('.menu-cal-col[data-fecha]')];
+      if (!cols.length) return;
+      targetCol = cols.reduce((best, col) => {
+        const da = Math.abs(new Date(col.dataset.fecha) - lunesDate);
+        const db = Math.abs(new Date(best.dataset.fecha) - lunesDate);
+        return da < db ? col : best;
+      }, cols[0]);
     }
-
-    const col = scroll.querySelector(`[data-fecha="${targetFecha}"]`);
-    if (col) {
-      // Scroll horizontal al lunes
-      const colLeft   = col.offsetLeft;
-      const headerW   = scroll.querySelector('.menu-cal-labels')?.offsetWidth || 80;
-      scroll.scrollLeft = Math.max(0, colLeft - headerW);
-    }
+    if (!targetCol) return;
+    const labelsW = scroll.querySelector('.menu-cal-labels')?.offsetWidth || 80;
+    scroll.scrollLeft = Math.max(0, targetCol.offsetLeft - labelsW);
   }
 
   // ── Combinar días ────────────────────────────────────────────────
@@ -226,6 +228,7 @@ const Menu = (() => {
         const config=App.getState().config||{};
         const nombreEsp=esEspecial?(config.tiposDiaEspecial||[]).find(t=>t.id===dia.tipoEspecial)?.nombre||'Día especial':'';
         html+=`<div class="menu-cal-col ${esHoy?'menu-cal-col--hoy':''} ${esFinde?'menu-cal-col--finde':''} ${esEspecial?'menu-cal-col--especial':''}"
+                    data-fecha="${dia.fecha}"
                     style="min-height:${totalAltura}px" title="${UI.escapeHtml(nombreEsp)}">`;
 
         // Cabecera
@@ -300,6 +303,7 @@ const Menu = (() => {
         const config2=App.getState().config||{};
         const nombreEsp2=esEspecial?(config2.tiposDiaEspecial||[]).find(t=>t.id===dia.tipoEspecial)?.nombre||'Día especial':'';
         html+=`<div class="menu-cal-col ${esHoy?'menu-cal-col--hoy':''} ${esFinde?'menu-cal-col--finde':''} ${esEspecial?'menu-cal-col--especial':''}"
+                    data-fecha="${dia.fecha}"
                     style="min-height:${totalAltura}px">`;
         html+=`<div class="menu-cal-dia-header" style="height:${ALT_HEADER}px">
           <span class="menu-cal-dia-nombre">${Dates.dayShort(dia.fecha)}</span>
@@ -312,25 +316,27 @@ const Menu = (() => {
         ['comida','cena'].forEach(momento=>{
           const bloque=dia[momento];
           html+=`<div class="menu-cal-bloque-sep" style="height:${ALT_LABEL}px"></div>`;
-          const esEsp=!bloque?.activo;
+          // Solo marca como no-editable si el día está explícitamente cancelado
+          // (activo===false AND hay tipo especial que lo anula)
+          // Los días simplemente vacíos SÍ son editables
+          const esCancelado = bloque?.activo===false && !!dia.tipoEspecial;
 
           // Adultos editable
           const plMay=bloque?.platosMayores?.length
             ? bloque.platosMayores.map(p=>p.nombre).join(' + ') : '+';
-          html+=`<div class="menu-cal-celda ${esEsp?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+          html+=`<div class="menu-cal-celda ${esCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
                       style="height:${ALT_FILA}px"
-                      ${!esEsp?`data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="mayores"`:''}
-                      >${esEsp?'—':UI.escapeHtml(plMay)}</div>`;
+                      data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="mayores"
+                      >${esCancelado?'—':UI.escapeHtml(plMay)}</div>`;
 
           // Bebé editable
           if(tieneBebe){
-            const bebeNull=bloque?.platosBebe===null;
             const plBebe=bloque?.platosBebe?.length
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ') : '+';
-            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${esEsp||bebeNull?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${esCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
                         style="height:${ALT_FILA}px"
-                        ${!esEsp&&!bebeNull?`data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="bebe"`:''}
-                        >${esEsp||bebeNull?'—':UI.escapeHtml(plBebe)}</div>`;
+                        data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="bebe"
+                        >${esCancelado?'—':UI.escapeHtml(plBebe)}</div>`;
           }
         });
         html+=`</div>`;
@@ -1270,7 +1276,7 @@ const Menu = (() => {
     const mostrarSync = tieneBebe && perfil==='mayores';
 
     container.innerHTML = `
-      <!-- Toolbar: copiar/pegar + sync + crear plato -->
+      <!-- Toolbar: copiar/pegar + sync -->
       <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" id="popup-btn-copiar" title="Copiar esta comida al portapapeles">
           📋 Copiar comida
@@ -1279,9 +1285,6 @@ const Menu = (() => {
                 style="${_portapapeles ? '' : 'opacity:0.4;pointer-events:none'}"
                 title="${_portapapeles ? 'Pegar: ' + _portapapeles.label : 'Portapapeles vacío'}">
           📌 Pegar ${_portapapeles ? '('+_portapapeles.label+')' : ''}
-        </button>
-        <button class="btn btn-secondary btn-sm" id="popup-btn-crear-plato" title="Crear un plato nuevo">
-          ➕ Crear plato
         </button>
         ${mostrarSync ? `
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;font-size:var(--font-size-xs)">
@@ -1331,16 +1334,6 @@ const Menu = (() => {
         if(list) list.innerHTML = _buildPopupPlatos(getFiltrados(),'',perfil);
         _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
       }
-
-      // Crear plato nuevo desde aquí
-      document.getElementById('popup-btn-crear-plato')?.addEventListener('click', () => {
-        modal.close();
-        // Abre el formulario de platos y al guardar vuelve al menú
-        Platos.openForm(null, () => {
-          // Refresca la lista de platos en el popup y reabre
-          setTimeout(() => _abrirPopupPlato(fecha, momento, perfil), 300);
-        });
-      });
 
       // Copiar comida actual al portapapeles
       document.getElementById('popup-btn-copiar')?.addEventListener('click', ()=>{
@@ -1572,7 +1565,28 @@ const Menu = (() => {
   function _bindPaso5(){
     document.querySelectorAll('.menu-cal-celda--edit').forEach(td=>{
       td.addEventListener('click',()=>{
-        _abrirPopupPlato(td.dataset.fecha,td.dataset.momento,td.dataset.perfil);
+        const fecha   = td.dataset.fecha;
+        const momento = td.dataset.momento;
+        const perfil  = td.dataset.perfil;
+
+        // Si el día no existe en _menuEnCurso, lo crea (día vacío editable)
+        let dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
+        if (!dia) {
+          dia = {
+            fecha, diaSemana: Dates.dayName(fecha),
+            tipoEspecial: null, esDiaFacil: false, facilComida: false, facilCena: false,
+            comida: { activo: true, _mayActivo: true, _bebeActivo: true, platosMayores: [], platosBebe: [] },
+            cena:   { activo: true, _mayActivo: true, _bebeActivo: true, platosMayores: [], platosBebe: [] },
+          };
+          _menuEnCurso.dias.push(dia);
+          _menuEnCurso.dias.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+        }
+        // Si el bloque no existe, lo inicializa
+        if (!dia[momento]) {
+          dia[momento] = { activo: true, _mayActivo: true, _bebeActivo: true, platosMayores: [], platosBebe: [] };
+        }
+
+        _abrirPopupPlato(fecha, momento, perfil);
       });
     });
     document.getElementById('menu-btn-confirmar')?.addEventListener('click',_confirmarMenu);
