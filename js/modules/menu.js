@@ -362,10 +362,20 @@ const Menu = (() => {
   // ── Asistente ────────────────────────────────────────────────────
 
   function _iniciarAsistente() {
+    // La fecha de inicio siempre es el próximo lunes
+    const manana = Dates.tomorrow();
+    const lunesProximo = Dates.startOfWeek(manana) >= manana
+      ? Dates.startOfWeek(manana)
+      : Dates.addDays(Dates.startOfWeek(manana), 7);
+    // Si mañana ya es lunes, usar mañana directamente
+    const inicio = new Date(manana+'T00:00:00').getDay() === 1
+      ? manana
+      : lunesProximo;
+
     _menuEnCurso={
       id:`menu-${Date.now()}`,
-      fechaInicio:Dates.tomorrow(),
-      fechaFin:Dates.addDays(Dates.tomorrow(),6),
+      fechaInicio: inicio,
+      fechaFin: Dates.addDays(inicio, 6),
       numSemanas:1,
       dias:[],
       estado:'borrador',
