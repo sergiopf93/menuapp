@@ -137,8 +137,8 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
-    // Scroll al lunes de la semana actual — setTimeout para asegurar que el DOM está listo
-    setTimeout(()=>_scrollCalendarioAHoy(), 100);
+    // Scroll al lunes — doble requestAnimationFrame garantiza que el layout está listo
+    requestAnimationFrame(() => requestAnimationFrame(() => _scrollCalendarioAHoy()));
   }
 
   // ── Scroll al lunes de semana actual ────────────────────────────
