@@ -225,6 +225,10 @@ const Sync = (() => {
         if (key === 'platos')     state.platos      = newData;
         if (key === 'config')     state.config      = newData;
 
+        // Llama a listeners registrados (actualiza vistas)
+        if (_listeners[fileName]) {
+          _listeners[fileName].forEach(cb => { try { cb(newData); } catch{} });
+        }
         // Avisa al usuario si es cambio externo (no nuestro)
         if (!forzar) _notifyUser(fileName);
 
@@ -244,11 +248,12 @@ const Sync = (() => {
     UI.showToast(`Actualizado: ${labels[fileName]||fileName}`, 'info', 3000);
   }
 
-  /** Registra un listener para cuando cambia un fichero (compatibilidad) */
+  const _listeners = {};
+
+  /** Registra un listener que se ejecuta cuando cambia un fichero en Drive */
   function onFileChange(fileName, callback) {
-    // Los cambios ahora se aplican directamente en _poll al estado
-    // Este método se mantiene por compatibilidad con app.js
-    console.log('[Sync] onFileChange registrado para:', fileName);
+    if (!_listeners[fileName]) _listeners[fileName] = [];
+    _listeners[fileName].push(callback);
   }
 
   // ── Export ────────────────────────────────────────────────────────

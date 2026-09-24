@@ -95,87 +95,137 @@ const App = (() => {
     state.usuario = Auth.getUserInfo();
 
     try {
-      // Inicializa estructura de Drive
-      await Drive.initFolderStructure();
+      // ── PASO 1: carga caché local (instantáneo) ──────────────────
+      // Si hay caché, muestra la app inmediatamente sin esperar a Drive
+      const tieneCache = await _loadFromCache();
 
-      // Carga datos iniciales
-      await _loadInitialData();
+      if (tieneCache) {
+        // Tenemos datos en local → mostramos la app YA
+        UI.showScreen('app');
+        navigate('dashboard');
+        _bindHeaderControls();
+        Sync.start();
+        _registerSyncListeners();
+        Notificaciones.init();
+        UI.maybeShowPWABanner();
+        _scheduleNotificationCheck();
 
-      // Muestra la app
-      UI.showScreen('app');
-      navigate('dashboard');
+        // ── PASO 2: sincroniza con Drive en background ────────────
+        // No bloquea la UI — el usuario ya ve la app
+        _sincronizarDriveBackground();
 
-      // Vincula controles del header
-      _bindHeaderControls();
+      } else {
+        // Primera vez o caché vacía: necesitamos Drive para arrancar
+        UI.setLoadingMessage('Primera vez — descargando datos...');
+        await Drive.initFolderStructure();
+        await _loadFromDrive();
 
-      // Limpia datos corruptos de platos (tipoMenu duplicado, ingredientes duplicados)
+        UI.showScreen('app');
+        navigate('dashboard');
+        _bindHeaderControls();
+        Sync.start();
+        _registerSyncListeners();
+        Notificaciones.init();
+        UI.maybeShowPWABanner();
+        _scheduleNotificationCheck();
+      }
+
       _limpiarDatosPlatos();
-
-      // Inicia sincronización en background
-      Sync.start();
-      _registerSyncListeners();
-
-      // Inicia sistema de notificaciones
-      Notificaciones.init();
-
-      // Muestra banner PWA si aplica
-      UI.maybeShowPWABanner();
-
-      // Programa comprobación de notificaciones
-      _scheduleNotificationCheck();
-
-      // Muestra estado de Drive en el dashboard
-      _renderDriveStatus();
 
     } catch (err) {
       console.error('[App] Error cargando datos:', err);
-      UI.showScreen('login');
       UI.showToast(`Error: ${err.message}`, 'error', 6000);
       _showLogin();
     }
   }
 
-  /**
-   * Carga inventario, platos y configuración desde Drive (o caché local).
-   */
-  /**
-   * Carga todos los ficheros de datos desde Drive.
-   * Siempre va a Drive en el arranque para garantizar datos frescos.
-   * La caché local (IndexedDB) se usa solo como fallback offline.
-   */
-  async function _loadInitialData() {
-    UI.setLoadingMessage('Cargando catálogo de artículos...');
-    state.catalogo   = await Drive.readJson('catalogo.json')
-                       ?? await Storage.get('cache_catalogo.json')
-                       ?? [];
+  /** Carga datos desde IndexedDB (caché local). Devuelve true si había datos. */
+  async function _loadFromCache() {
+    const [catalogo, inventario, platos, config] = await Promise.all([
+      Storage.get('cache_catalogo.json'),
+      Storage.get('cache_inventario.json'),
+      Storage.get('cache_platos.json'),
+      Storage.get('cache_config.json'),
+    ]);
 
-    UI.setLoadingMessage('Cargando inventario...');
-    state.inventario = await Drive.readJson('inventario.json')
-                       ?? await Storage.get('cache_inventario.json')
-                       ?? [];
+    // Solo usa caché si tenemos al menos platos y config
+    if (!platos && !config) return false;
 
-    UI.setLoadingMessage('Cargando catálogo de platos...');
-    state.platos     = await Drive.readJson('platos.json')
-                       ?? await Storage.get('cache_platos.json')
-                       ?? [];
+    state.catalogo   = catalogo   || [];
+    state.inventario = inventario || [];
+    state.platos     = platos     || [];
+    state.config     = config     || _defaultConfig();
 
-    UI.setLoadingMessage('Cargando configuración...');
-    state.config     = await Drive.readJson('config.json')
-                       ?? await Storage.get('cache_config.json')
-                       ?? _defaultConfig();
+    return true;
+  }
 
-    // Si config no existía en Drive, la crea
+  /** Descarga todos los ficheros desde Drive y actualiza caché + estado. */
+  async function _loadFromDrive() {
+    const [catalogo, inventario, platos, config] = await Promise.all([
+      Drive.readJson('catalogo.json'),
+      Drive.readJson('inventario.json'),
+      Drive.readJson('platos.json'),
+      Drive.readJson('config.json'),
+    ]);
+
+    state.catalogo   = catalogo   || state.catalogo   || [];
+    state.inventario = inventario || state.inventario || [];
+    state.platos     = platos     || state.platos     || [];
+    state.config     = config     || state.config     || _defaultConfig();
+
     if (!state.config.version) {
       state.config = _defaultConfig();
-      await Drive.writeJson('config.json', state.config);
+      Sync.save('config.json', state.config);
     }
 
-    // Actualiza la caché local con los datos frescos de Drive
-    await Storage.set('cache_catalogo.json',   state.catalogo);
-    await Storage.set('cache_inventario.json', state.inventario);
-    await Storage.set('cache_platos.json',     state.platos);
-    await Storage.set('cache_config.json',     state.config);
+    // Guarda en caché local
+    await Promise.all([
+      Storage.set('cache_catalogo.json',   state.catalogo),
+      Storage.set('cache_inventario.json', state.inventario),
+      Storage.set('cache_platos.json',     state.platos),
+      Storage.set('cache_config.json',     state.config),
+    ]);
   }
+
+  /** Comprueba si Drive tiene versiones más nuevas y actualiza en background. */
+  async function _sincronizarDriveBackground() {
+    try {
+      // Primero asegura que la estructura de carpetas existe (en background)
+      await Drive.initFolderStructure().catch(()=>{});
+
+      const ficheros = ['catalogo.json','inventario.json','platos.json','config.json'];
+      let huboActualizacion = false;
+
+      for (const f of ficheros) {
+        try {
+          const changed = await Drive.hasChanged(f);
+          if (!changed) continue;
+
+          const data = await Drive.readJson(f);
+          if (!data) continue;
+
+          const key = f.replace('.json','');
+          state[key === 'catalogo' ? 'catalogo'
+              : key === 'inventario' ? 'inventario'
+              : key === 'platos'     ? 'platos'
+              : 'config'] = data;
+
+          await Storage.set(`cache_${f}`, data);
+          huboActualizacion = true;
+          console.log(`[App] Actualizado desde Drive: ${f}`);
+        } catch(e) {
+          console.warn(`[App] Error sincronizando ${f}:`, e.message);
+        }
+      }
+
+      // Si algo cambió, refresca la vista activa
+      if (huboActualizacion) _reRenderActiveView();
+
+    } catch(e) {
+      console.warn('[App] Sync background falló:', e.message);
+    }
+  }
+
 
   // ── Navegación ───────────────────────────────────────────────────
 
