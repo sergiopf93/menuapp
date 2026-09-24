@@ -96,11 +96,11 @@ const App = (() => {
 
     try {
       // ── PASO 1: carga caché local (instantáneo) ──────────────────
-      // Si hay caché, muestra la app inmediatamente sin esperar a Drive
       const tieneCache = await _loadFromCache();
+      console.log('[App] tieneCache:', tieneCache);
 
       if (tieneCache) {
-        // Tenemos datos en local → mostramos la app YA
+        // Tenemos datos → mostramos la app YA
         UI.showScreen('app');
         navigate('dashboard');
         _bindHeaderControls();
@@ -111,12 +111,11 @@ const App = (() => {
         _scheduleNotificationCheck();
 
         // ── PASO 2: sincroniza con Drive en background ────────────
-        // Drive.initFolderStructure se llama dentro de _sincronizarDriveBackground
-        // para no bloquear la visualización de la app
-        setTimeout(() => _sincronizarDriveBackground(), 500);
+        console.log('[App] Lanzando sync en background...');
+        _sincronizarDriveBackground();  // sin setTimeout — empieza inmediatamente
 
       } else {
-        // Primera vez o caché vacía: necesitamos Drive para arrancar
+        // Primera vez: necesitamos Drive para arrancar
         UI.setLoadingMessage('Primera vez — descargando datos...');
         await Drive.initFolderStructure();
         await _loadFromDrive();
@@ -149,7 +148,8 @@ const App = (() => {
       Storage.get('cache_config.json'),
     ]);
 
-    // Solo usa caché si tenemos al menos platos y config
+    console.log('[App] Cache: platos=', !!platos, 'config=', !!config);
+
     if (!platos && !config) return false;
 
     state.catalogo   = catalogo   || [];
@@ -190,10 +190,10 @@ const App = (() => {
 
   /** Comprueba si Drive tiene versiones más nuevas y actualiza en background. */
   async function _sincronizarDriveBackground() {
+    console.log('[App] _sincronizarDriveBackground iniciado');
     try {
-      // Primero inicializa la estructura de Drive (obtiene IDs de carpetas)
-      // Sin esto, Drive.readJson no sabe dónde buscar los ficheros
       await Drive.initFolderStructure();
+      console.log('[App] Drive inicializado, descargando ficheros...');
 
       // Descarga y compara con lo que hay en caché
       const ficheros = [
