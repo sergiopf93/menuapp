@@ -244,7 +244,14 @@ const Sync = (() => {
     UI.showToast(`Actualizado: ${labels[fileName]||fileName}`, 'info', 3000);
   }
 
+  /** Registra un listener para cuando cambia un fichero (compatibilidad) */
+  function onFileChange(fileName, callback) {
+    // Los cambios ahora se aplican directamente en _poll al estado
+    // Este método se mantiene por compatibilidad con app.js
+    console.log('[Sync] onFileChange registrado para:', fileName);
+  }
+
   // ── Export ────────────────────────────────────────────────────────
-  return { start, stop, syncNow, save, saveMenu, saveCompra, normalize };
+  return { start, stop, syncNow, save, saveMenu, saveCompra, normalize, onFileChange };
 
 })();
