@@ -97,7 +97,7 @@ const App = (() => {
     try {
       // ── PASO 1: carga caché local (instantáneo) ──────────────────
       const tieneCache = await _loadFromCache();
-      console.log('[App] tieneCache:', tieneCache);
+
 
       if (tieneCache) {
         // Tenemos datos → mostramos la app YA
@@ -111,7 +111,7 @@ const App = (() => {
         _scheduleNotificationCheck();
 
         // ── PASO 2: sincroniza con Drive en background ────────────
-        console.log('[App] Lanzando sync en background...');
+  
         _sincronizarDriveBackground();  // sin setTimeout — empieza inmediatamente
 
       } else {
@@ -190,12 +190,9 @@ const App = (() => {
 
   /** Comprueba si Drive tiene versiones más nuevas y actualiza en background. */
   async function _sincronizarDriveBackground() {
-    console.log('[App] _sincronizarDriveBackground iniciado');
     try {
       await Drive.initFolderStructure();
-      console.log('[App] Drive inicializado, descargando ficheros...');
 
-      // Descarga y compara con lo que hay en caché
       const ficheros = [
         { file: 'catalogo.json',   key: 'catalogo'   },
         { file: 'inventario.json', key: 'inventario'  },
@@ -207,12 +204,10 @@ const App = (() => {
 
       for (const { file, key } of ficheros) {
         try {
-          console.log('[App] Descargando:', file);
           const data = await Promise.race([
             Drive.readJson(file),
             new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
           ]);
-          console.log('[App] OK:', file, data ? 'con datos' : 'vacío');
           if (!data) continue;
 
           const actualStr = JSON.stringify(state[key]);
@@ -223,16 +218,41 @@ const App = (() => {
           await Storage.set(`cache_${file}`, data);
           huboActualizacion = true;
         } catch(e) {
-          console.warn(`[App] Error/timeout en ${file}:`, e.message);
+          console.warn(`[Sync] Error en ${file}:`, e.message);
         }
       }
 
       if (huboActualizacion) {
         _reRenderActiveView();
+        UI.showToast('Datos actualizados desde Drive', 'info', 2000);
+      }
+
+      // Actualiza el estado del sistema y el menú del dashboard
+      _renderDriveStatus();
+      // Refresca el calendario del dashboard (ahora Drive ya tiene folder IDs)
+      const calContainer = document.getElementById('dashboard-menu-preview');
+      if (calContainer) {
+        Menu.getCalendarioHTML().then(html => {
+          if (html) {
+            calContainer.className = '';
+            calContainer.style.padding = '';
+            calContainer.innerHTML = `
+              <div class="menu-calendario-wrapper">${html}</div>
+              <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
+                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
+                <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
+              </div>`;
+          } else {
+            calContainer.innerHTML = `
+              <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú para esta semana.</p>
+              <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>`;
+          }
+        }).catch(()=>{});
       }
 
     } catch(e) {
-      console.warn('[App] Sync background falló:', e.message);
+      console.warn('[Sync] Background sync falló:', e.message);
+      _renderDriveStatus();  // actualiza aunque falle
     }
   }
 
@@ -777,15 +797,8 @@ const App = (() => {
 
   /**
    * Actualiza una parte del estado y persiste en Drive y caché.
-   * @param {'inventario'|'platos'|'config'} key
-   * @param {*} value
    */
-  /**
-   * Actualiza una parte del estado y persiste en Drive y caché.
-   * @param {'inventario'|'platos'|'config'|'catalogo'} key
-   * @param {*} value
-   */
-    async function setState(key, value) {
+  async function setState(key, value) {
     state[key] = value;
     const FILE_MAP = {
       catalogo:   'catalogo.json',
@@ -795,7 +808,6 @@ const App = (() => {
     };
     const fileName = FILE_MAP[key];
     if (fileName) {
-      // Sync.save: guarda en IndexedDB + sube a Drive en background
       await Sync.save(fileName, value);
     }
   }
