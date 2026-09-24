@@ -111,8 +111,9 @@ const App = (() => {
         _scheduleNotificationCheck();
 
         // ── PASO 2: sincroniza con Drive en background ────────────
-        // No bloquea la UI — el usuario ya ve la app
-        _sincronizarDriveBackground();
+        // Drive.initFolderStructure se llama dentro de _sincronizarDriveBackground
+        // para no bloquear la visualización de la app
+        setTimeout(() => _sincronizarDriveBackground(), 500);
 
       } else {
         // Primera vez o caché vacía: necesitamos Drive para arrancar
@@ -190,36 +191,42 @@ const App = (() => {
   /** Comprueba si Drive tiene versiones más nuevas y actualiza en background. */
   async function _sincronizarDriveBackground() {
     try {
-      // Primero asegura que la estructura de carpetas existe (en background)
-      await Drive.initFolderStructure().catch(()=>{});
+      // Primero inicializa la estructura de Drive (obtiene IDs de carpetas)
+      // Sin esto, Drive.readJson no sabe dónde buscar los ficheros
+      await Drive.initFolderStructure();
 
-      const ficheros = ['catalogo.json','inventario.json','platos.json','config.json'];
+      // Descarga y compara con lo que hay en caché
+      const ficheros = [
+        { file: 'catalogo.json',   key: 'catalogo'   },
+        { file: 'inventario.json', key: 'inventario'  },
+        { file: 'platos.json',     key: 'platos'      },
+        { file: 'config.json',     key: 'config'      },
+      ];
+
       let huboActualizacion = false;
 
-      for (const f of ficheros) {
+      await Promise.all(ficheros.map(async ({ file, key }) => {
         try {
-          const changed = await Drive.hasChanged(f);
-          if (!changed) continue;
+          const data = await Drive.readJson(file);
+          if (!data) return;
 
-          const data = await Drive.readJson(f);
-          if (!data) continue;
+          // Compara con lo que ya tenemos en memoria
+          const actualStr = JSON.stringify(state[key]);
+          const driveStr  = JSON.stringify(data);
+          if (actualStr === driveStr) return; // sin cambios
 
-          const key = f.replace('.json','');
-          state[key === 'catalogo' ? 'catalogo'
-              : key === 'inventario' ? 'inventario'
-              : key === 'platos'     ? 'platos'
-              : 'config'] = data;
-
-          await Storage.set(`cache_${f}`, data);
+          state[key] = data;
+          await Storage.set(`cache_${file}`, data);
           huboActualizacion = true;
-          console.log(`[App] Actualizado desde Drive: ${f}`);
+          console.log(`[App] Actualizado desde Drive: ${file}`);
         } catch(e) {
-          console.warn(`[App] Error sincronizando ${f}:`, e.message);
+          console.warn(`[App] Error sincronizando ${file}:`, e.message);
         }
-      }
+      }));
 
-      // Si algo cambió, refresca la vista activa
-      if (huboActualizacion) _reRenderActiveView();
+      if (huboActualizacion) {
+        _reRenderActiveView();
+      }
 
     } catch(e) {
       console.warn('[App] Sync background falló:', e.message);
