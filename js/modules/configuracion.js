@@ -585,7 +585,7 @@ const Configuracion = (() => {
       const list = document.getElementById('cfg-art-list');
       if (!list) return;
       const items = catalogo()
-        .filter(a => !filtro || a.nombre.toLowerCase().includes(filtro.toLowerCase()))
+        .filter(a => !filtro || _norm(a.nombre).includes(_norm(filtro)))
         .sort((a,b) => a.nombre.localeCompare(b.nombre,'es'));
 
       if (!items.length) {
