@@ -205,24 +205,27 @@ const App = (() => {
 
       let huboActualizacion = false;
 
-      await Promise.all(ficheros.map(async ({ file, key }) => {
+      for (const { file, key } of ficheros) {
         try {
-          const data = await Drive.readJson(file);
-          if (!data) return;
+          console.log('[App] Descargando:', file);
+          const data = await Promise.race([
+            Drive.readJson(file),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
+          ]);
+          console.log('[App] OK:', file, data ? 'con datos' : 'vacío');
+          if (!data) continue;
 
-          // Compara con lo que ya tenemos en memoria
           const actualStr = JSON.stringify(state[key]);
           const driveStr  = JSON.stringify(data);
-          if (actualStr === driveStr) return; // sin cambios
+          if (actualStr === driveStr) continue;
 
           state[key] = data;
           await Storage.set(`cache_${file}`, data);
           huboActualizacion = true;
-          console.log(`[App] Actualizado desde Drive: ${file}`);
         } catch(e) {
-          console.warn(`[App] Error sincronizando ${file}:`, e.message);
+          console.warn(`[App] Error/timeout en ${file}:`, e.message);
         }
-      }));
+      }
 
       if (huboActualizacion) {
         _reRenderActiveView();
