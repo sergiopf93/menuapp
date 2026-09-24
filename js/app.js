@@ -380,7 +380,7 @@ const App = (() => {
 
     if (hubocambios) {
       state.platos = platosLimpios;
-      await Drive.writeJson('platos.json', platosLimpios);
+      await Sync.save('platos.json', platosLimpios);
       await Storage.set('cache_platos.json', platosLimpios);
       console.log('[App] Datos de platos limpiados y guardados en Drive');
     }
@@ -725,11 +725,19 @@ const App = (() => {
    * @param {'inventario'|'platos'|'config'|'catalogo'} key
    * @param {*} value
    */
-  async function setState(key, value) {
-    state[key] = value;                          // ← actualiza memoria primero
-    const fileName = `${key}.json`;
-    await Storage.set(`cache_${fileName}`, value);
-    await Drive.writeJson(fileName, value);
+    async function setState(key, value) {
+    state[key] = value;
+    const FILE_MAP = {
+      catalogo:   'catalogo.json',
+      inventario: 'inventario.json',
+      platos:     'platos.json',
+      config:     'config.json',
+    };
+    const fileName = FILE_MAP[key];
+    if (fileName) {
+      // Sync.save: guarda en IndexedDB + sube a Drive en background
+      await Sync.save(fileName, value);
+    }
   }
 
   // ── Export ───────────────────────────────────────────────────────
