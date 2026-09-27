@@ -119,6 +119,16 @@ const Drive = (() => {
     return _listFiles(_cache.menusFolderId, 'application/json');
   }
 
+  /** Lista los JSON de la raíz, incluidos los nombres usados por listas antiguas. */
+  async function listRootJsonFiles() {
+    return _listFiles(_cache.rootFolderId, 'application/json');
+  }
+
+  /** Lista los JSON históricos de la carpeta de compras. */
+  async function listPurchaseFiles() {
+    return _listFiles(_cache.comprasFolderId, 'application/json');
+  }
+
   /**
    * Lee un fichero JSON de la carpeta de menús.
    * @param {string} fileId
@@ -342,6 +352,8 @@ const Drive = (() => {
     writeMenuJson,
     readMenuJson,
     listMenuFiles,
+    listRootJsonFiles,
+    listPurchaseFiles,
     hasChanged,
     getFolderIds,
   };

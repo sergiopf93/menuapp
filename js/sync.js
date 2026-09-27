@@ -5,7 +5,7 @@
  * - Al arrancar: carga IndexedDB (instantáneo), muestra la app, compara ETags con Drive en background
  * - Cada cambio del usuario: escribe en memoria + IndexedDB + sube a Drive en background
  * - Sin red: trabaja en local, encola los cambios pendientes, sube al recuperar conexión
- * - Conflicto compra: merge por ítem (deduplicación insensible a acentos/mayúsculas)
+ * - Compra: lista atemporal, merge por nombre normalizado y marcas persistentes de retirada
  * - Resto de ficheros: last-write-wins por modifiedTime
  *
  * @module Sync
@@ -105,21 +105,77 @@ const Sync = (() => {
    * Si hay una versión más reciente en Drive, hace merge por ítem antes de guardar.
    */
   async function saveCompra(compra) {
-    const fecha = (compra.fechaCreacion||'').replace(/-/g,'') || Date.now();
-    const fileName = `compras/compra_${fecha}.json`;
-
-    // Intenta hacer merge con la versión en Drive (por si la pareja editó)
+    const fileName = 'lista_compra.json';
+    compra = _mergeCompra(_pendientes[fileName]?.data, compra);
     if (navigator.onLine) {
       try {
-        const driveCompra = await Drive.readJson(fileName).catch(()=>null);
-        if (driveCompra) {
-          compra = _mergeCompra(driveCompra, compra);
+        let convergida = false;
+        for (let intento = 0; intento < 3; intento++) {
+          compra = _mergeCompra(await readCompra(), compra);
+          await Drive.writeJson(fileName, compra);
+          const verificada = await Drive.readJson(fileName);
+          const fusionada = _mergeCompra(verificada, compra);
+          if (_mismoContenidoLista(verificada, fusionada)) {
+            compra = fusionada;
+            convergida = true;
+            break;
+          }
+          compra = fusionada;
         }
-      } catch(e) { /* sin problema, sube la local */ }
+        if (!convergida) await Drive.writeJson(fileName, compra);
+        delete _pendientes[fileName];
+        _savePendientes();
+        await Storage.set(`cache_${fileName}`, compra);
+        return compra;
+      } catch(e) {
+        console.warn('[Sync] Lista de compra pendiente de subir:', e.message);
+      }
     }
 
-    await save(fileName, compra);
-    return compra;  // devuelve la versión mergeada
+    _pendientes[fileName] = { data: compra, ts: Date.now() };
+    _savePendientes();
+    await Storage.set(`cache_${fileName}`, compra);
+    return compra;
+  }
+
+  async function readCompra() {
+    const actual = await Drive.readJson('lista_compra.json');
+    if (actual) return actual;
+
+    // Migra al combinar las listas fechadas que guardaban versiones anteriores.
+    const [archivosRaiz, archivosCarpeta] = await Promise.all([
+      Drive.listRootJsonFiles(),
+      Drive.listPurchaseFiles(),
+    ]);
+    const antiguas = [
+      ...archivosRaiz.filter(f => /^(?:compras\/)?compra_.+\.json$/.test(f.name)).map(f => ({ ...f, enCarpeta: false })),
+      ...archivosCarpeta.filter(f => /^compra_.+\.json$/.test(f.name)).map(f => ({ ...f, enCarpeta: true })),
+    ]
+      .sort((a, b) => (a.modifiedTime || '').localeCompare(b.modifiedTime || ''));
+    let lista = null;
+    for (const archivo of antiguas) {
+      const anterior = await (archivo.enCarpeta
+        ? Drive.readMenuJson(archivo.id)
+        : Drive.readJson(archivo.name)).catch(()=>null);
+      if (!anterior) continue;
+      const fechaModificacion = archivo.modifiedTime || new Date().toISOString();
+      const removidos = { ...(anterior.removidos || {}) };
+      if (anterior.estado === 'completada') {
+        (anterior.items || []).filter(item => item.comprado).forEach(item => {
+          removidos[normalize(item.nombre)] = fechaModificacion;
+        });
+      }
+      const items = (anterior.items || [])
+        .filter(item => !item.enDespensa && !(anterior.estado === 'completada' && item.comprado))
+        .map(item => ({ ...item, actualizadoEn: item.actualizadoEn || fechaModificacion }));
+      lista = _mergeCompra(lista, { ...anterior, removidos, items });
+    }
+    return lista;
+  }
+
+  function _mismoContenidoLista(a, b) {
+    return JSON.stringify(a?.removidos || {}) === JSON.stringify(b?.removidos || {}) &&
+      JSON.stringify(a?.items || []) === JSON.stringify(b?.items || []);
   }
 
   /**
@@ -136,33 +192,41 @@ const Sync = (() => {
   // ── Merge de lista de la compra ───────────────────────────────────
 
   /**
-   * Fusiona dos versiones de la lista de la compra.
-   * Gana el ítem más reciente si hay conflicto; nunca duplica por nombre.
+   * Fusiona versiones de la lista por nombre normalizado y conserva las retiradas.
    */
   function _mergeCompra(base, nueva) {
-    const itemsBase  = base.items  || [];
-    const itemsNueva = nueva.items || [];
-
-    // Índice de items base por nombre normalizado
-    const idx = {};
-    itemsBase.forEach(i => { idx[normalize(i.nombre)] = i; });
-
-    // Añade los de la versión nueva que no existan (por nombre normalizado)
-    itemsNueva.forEach(i => {
-      const key = normalize(i.nombre);
-      if (!idx[key]) {
-        idx[key] = i;  // ítem nuevo de la pareja
-      } else {
-        // Si el mismo ítem existe en ambas, gana el estado más avanzado
-        // (comprado > no-comprado; no-disponible se respeta)
-        if (i.comprado && !idx[key].comprado) idx[key] = i;
-        if (i.noDisponible) idx[key].noDisponible = true;
+    const removidos = { ...(base?.removidos || {}), ...(nueva?.removidos || {}) };
+    const items = new Map();
+    [...(base?.items || []), ...(nueva?.items || [])].forEach(item => {
+      const key = normalize(item.nombre);
+      if (!key) return;
+      if (removidos[key] && (!item.actualizadoEn || item.actualizadoEn <= removidos[key])) return;
+      if (item.actualizadoEn && removidos[key] && item.actualizadoEn > removidos[key]) delete removidos[key];
+      const anterior = items.get(key);
+      if (!anterior) {
+        items.set(key, { ...item });
+        return;
       }
+      const itemMasReciente = (anterior.actualizadoEn || '') > (item.actualizadoEn || '') ? anterior : item;
+      items.set(key, {
+        ...anterior,
+        ...item,
+        id: anterior.id || item.id,
+        cantidad: Math.max(Number(anterior.cantidad) || 0, Number(item.cantidad) || 0),
+        comprado: !!itemMasReciente.comprado,
+        noDisponible: !!itemMasReciente.noDisponible,
+      });
     });
 
     return {
-      ...nueva,  // metadatos de la versión más reciente
-      items: Object.values(idx),
+      ...(base || {}),
+      ...(nueva || {}),
+      id: 'lista-compra',
+      fechaCreacion: null,
+      estado: 'pendiente',
+      fechaCierre: null,
+      removidos,
+      items: [...items.values()],
     };
   }
 
@@ -184,7 +248,12 @@ const Sync = (() => {
     if (!keys.length) return;
     for (const fileName of keys) {
       try {
-        await Drive.writeJson(fileName, _pendientes[fileName].data);
+        if (fileName === 'lista_compra.json') {
+          await saveCompra(_pendientes[fileName].data);
+          if (_pendientes[fileName]) continue;
+        } else {
+          await Drive.writeJson(fileName, _pendientes[fileName].data);
+        }
         delete _pendientes[fileName];
         console.log(`[Sync] Pendiente subido: ${fileName}`);
       } catch(e) {
@@ -257,6 +326,6 @@ const Sync = (() => {
   }
 
   // ── Export ────────────────────────────────────────────────────────
-  return { start, stop, syncNow, save, saveMenu, saveCompra, normalize, onFileChange };
+  return { start, stop, syncNow, save, saveMenu, saveCompra, readCompra, mergeCompras: _mergeCompra, isPending: fileName => !!_pendientes[fileName], normalize, onFileChange };
 
 })();

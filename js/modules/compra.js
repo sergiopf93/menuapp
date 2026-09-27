@@ -2,11 +2,11 @@
  * MenuApp — Módulo de Lista de la Compra y Modo Compra (Fase 4)
  *
  * Flujo:
- *   1. Genera la lista a partir del menú confirmado
+ *   1. El usuario añade artículos y, si quiere, los genera desde el menú activo
  *   2. El usuario revisa y ajusta
  *   3. Selecciona supermercado → la lista se ordena por secciones
  *   4. Modo compra: marca artículos uno a uno
- *   5. Cierra la compra → actualiza el inventario automáticamente
+ *   5. Cierra la compra → elimina solo los artículos marcados como comprados
  *
  * Lógica de generación:
  *   - Para cada plato del menú, recoge sus ingredientes del catálogo
@@ -33,7 +33,10 @@ const Compra = (() => {
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ñ/g,'n').trim();
 
   const COMPRA_LOCAL_KEY = 'menuapp_compra_actual';
-  let _pendingDriveSync = false;
+
+  function _listaVacia() {
+    return { id: 'lista-compra', fechaCreacion: null, supermercadoId: null, items: [], removidos: {}, estado: 'pendiente', fechaCierre: null };
+  }
 
   function _guardarLocal(compra) {
     try {
@@ -50,27 +53,6 @@ const Compra = (() => {
     } catch { return null; }
   }
 
-  async function _sincronizarConDrive(compra) {
-    if (!compra) return;
-    try {
-      const fechaStr = compra.fechaCreacion?.replace(/-/g,'') || Dates.today().replace(/-/g,'');
-      await Drive.writeJson(`compras/compra_${fechaStr}.json`, compra);
-      _pendingDriveSync = false;
-    } catch(e) {
-      _pendingDriveSync = true;
-      console.warn('[Compra] Sin conexión, guardado solo en local');
-    }
-  }
-
-  // Intenta subir a Drive cuando vuelve la conexión
-  window.addEventListener('online', async () => {
-    if (_pendingDriveSync && _compraActual) {
-      await Sync.saveCompra(_compraActual).then(merged => { _compraActual = merged; App.getState().compraActual = merged; }).catch(()=>{});
-      UI.showToast('Lista sincronizada con Drive ✓', 'success');
-    }
-  });
-
-
   let _superId = null;         // supermercado seleccionado
 
   // ── API pública ──────────────────────────────────────────────────
@@ -80,22 +62,12 @@ const Compra = (() => {
     const view = document.getElementById('view-compra');
     if (!view) return;
 
-    // Intenta restaurar compra en curso desde el estado
     const state = App.getState();
-    // Carga la lista: primero del estado, luego de localStorage (offline)
-    if (state.compraActual) {
-      _compraActual = state.compraActual;
-    } else {
-      const localCompra = _cargarLocal();
-      if (localCompra) {
-        _compraActual = localCompra;
-        state.compraActual = localCompra;
-      }
-    }
-    if (state.compraActual) {
-      _compraActual = state.compraActual;
-      _vista = _compraActual.estado === 'en_curso' ? 'modo-compra' : 'lista';
-    }
+    // La copia local tiene prioridad; la vista incorpora después lo que haya en Drive.
+    _compraActual = _cargarLocal() || state.compraActual || _listaVacia();
+    state.compraActual = _compraActual;
+    // La vista de lista fusiona primero el estado remoto antes de iniciar compra.
+    _vista = 'lista';
 
     _renderVista(view);
   }
@@ -115,82 +87,44 @@ const Compra = (() => {
 
   async function _renderLista(view) {
     const state   = App.getState();
-    const menuActual = state.menuActual || await _buscarMenuActual();
+    const menuActual = await _buscarMenuActual();
+    state.menuActual = menuActual;
+    if (!_compraActual) _compraActual = _listaVacia();
 
-    if (!menuActual) {
-      // Sin menú — permite iniciar lista manual
-      const tieneListaManual = _compraActual && _compraActual.menuId === 'manual';
-      view.innerHTML = `
-        <div class="module-header">
-          <h1 class="module-title">Compra</h1>
-        </div>
-        ${tieneListaManual ? '' : `
-          <div class="empty-state" style="padding:var(--space-8) 0">
-            <div class="empty-state-icon">🛒</div>
-            <h2 class="empty-state-title">Sin menú activo</h2>
-            <p class="empty-state-desc">Puedes ir al generador de menú, o iniciar una lista manual de artículos.</p>
-            <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;justify-content:center">
-              <button class="btn btn-secondary" onclick="App.navigate('menu')">📅 Generar menú</button>
-              <button class="btn btn-primary" id="compra-btn-manual">🛒 Lista manual</button>
-            </div>
-          </div>`}`;
-
-      if (!tieneListaManual) {
-        document.getElementById('compra-btn-manual')?.addEventListener('click', () => {
-          _compraActual = {
-            id: `compra-${Date.now()}`,
-            menuId: 'manual',
-            fechaCreacion: Dates.today(),
-            supermercadoId: null,
-            items: [],
-            estado: 'pendiente',
-            fechaCierre: null,
-          };
-          App.getState().compraActual = _compraActual;
-          _renderVista(view);
-        });
-        return;
-      }
-      // Si hay lista manual, cae al render normal
+    // La lista remota se incorpora a la local al abrir; guardar en Drive sigue siendo explícito.
+    try {
+      const driveLista = await Sync.readCompra();
+      _compraActual = Sync.mergeCompras(driveLista, _compraActual);
+    } catch (e) {
+      console.warn('[Compra] No se pudo consultar la lista de Drive:', e.message);
     }
-
-    // Genera la lista si no hay compra en curso para este menú
-    if (!_compraActual || (_compraActual.menuId !== (menuActual?.id||'manual'))) {
-      _compraActual = menuActual
-        ? await _generarListaCompra(menuActual)
-        : { id:`compra-${Date.now()}`, menuId:'manual', fechaCreacion:Dates.today(),
-            supermercadoId:null, items:[], estado:'pendiente', fechaCierre:null };
-      App.getState().compraActual = _compraActual;
-    }
+    state.compraActual = _compraActual;
+    // Los datos antiguos pueden traer enDespensa=true. Despensa está desactivada,
+    // así que esos artículos siguen perteneciendo a la lista de compra.
+    _compraActual.items = (_compraActual.items || []).map(item => ({ ...item, enDespensa: false }));
+    _compraActual.estado = 'pendiente';
+    _guardarLocal(_compraActual);
 
     const items = _compraActual.items || [];
-    const aComprar  = items.filter(i => !i.enDespensa && !i.comprado);
-    const enCasa    = items.filter(i => i.enDespensa);
-    const extras    = items.filter(i => i.esExtra);
+    const aComprar  = items.filter(i => !i.comprado);
 
     view.innerHTML = `
       <div class="module-header">
         <h1 class="module-title">Lista de la compra</h1>
-        <button class="btn btn-secondary btn-sm" id="compra-btn-regenerar">↺ Regenerar</button>
       </div>
 
       <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
-        Menú del ${Dates.format(menuActual.fechaInicio,'numeric')} al ${Dates.format(menuActual.fechaFin,'numeric')}.
-        Revisa y ajusta antes de ir al supermercado.
+        ${menuActual ? `Menú activo en Drive: ${Dates.format(menuActual.fechaInicio,'numeric')} al ${Dates.format(menuActual.fechaFin,'numeric')}.` : 'No hay un menú activo en Drive. Puedes mantener y guardar una lista manual.'}
+        La lista no está ligada a una semana.
       </p>
 
       <!-- Paneles consulta rápida -->
-      <div class="compra-paneles-consulta">
-        <button class="btn btn-secondary btn-sm" id="compra-panel-menu-btn">📅 Ver menú</button>
-        <button class="btn btn-secondary btn-sm" id="compra-panel-inv-btn">📦 Ver despensa</button>
-      </div>
+      ${menuActual ? '<div class="compra-paneles-consulta"><button class="btn btn-secondary btn-sm" id="compra-panel-menu-btn">📅 Ver menú activo</button></div>' : ''}
       <div id="compra-panel-menu" class="menu-info-panel hidden"></div>
-      <div id="compra-panel-inv"  class="menu-info-panel hidden"></div>
 
       <!-- Resumen -->
       <div class="inv-summary-bar" style="margin-bottom:var(--space-4)">
         <span class="badge badge-blue">${aComprar.length} a comprar</span>
-        ${enCasa.length>0?`<span class="badge badge-green">✓ ${enCasa.length} en casa</span>`:''}
       </div>
 
       <!-- Items a comprar -->
@@ -202,21 +136,8 @@ const Compra = (() => {
           </div>
         </div>` : `
         <div class="card card-empty">
-          <p>✓ Tienes todos los ingredientes en casa.</p>
+          <p>${items.length ? '✓ No hay artículos pendientes de compra.' : 'La lista está vacía. Añade artículos o genera la lista desde el menú activo.'}</p>
         </div>`}
-
-      <!-- Items en casa -->
-      ${enCasa.length > 0 ? `
-        <div class="dashboard-section">
-          <details class="compra-details">
-            <summary class="section-title" style="cursor:pointer">
-              ✓ Ya tienes en casa (${enCasa.length})
-            </summary>
-            <div style="margin-top:var(--space-3)">
-              ${enCasa.map(item => _buildItemRevision(item, true)).join('')}
-            </div>
-          </details>
-        </div>` : ''}
 
       <!-- Añadir artículo extra -->
       <div class="dashboard-section">
@@ -239,11 +160,11 @@ const Compra = (() => {
           <button class="btn btn-secondary" id="compra-btn-guardar" style="flex:1">
             💾 Guardar lista
           </button>
-          <button class="btn btn-primary" style="flex:1" id="compra-btn-generar-nuevo">
+          <button class="btn btn-primary" style="flex:1" id="compra-btn-generar-nuevo" ${menuActual ? '' : 'disabled'}>
             🔄 Generar del menú
           </button>
         </div>
-        <button class="btn btn-primary btn-full" id="compra-btn-ir" ${aComprar.length===0?'disabled':''}>
+        <button class="btn btn-primary btn-full" id="compra-btn-ir" ${items.length===0?'disabled':''}>
           🛒 Ir a comprar →
         </button>
       </div>
@@ -252,24 +173,23 @@ const Compra = (() => {
     _bindListaEvents();
   }
 
-  function _buildItemRevision(item, enCasa=false) {
+  function _buildItemRevision(item) {
     return `
-      <div class="compra-item-rev ${enCasa?'compra-item-encasa':''}" data-id="${item.id}">
+      <div class="compra-item-rev" data-id="${item.id}">
         <div class="compra-item-info">
           <span class="compra-item-nombre">${UI.escapeHtml(item.nombre)}</span>
           <span class="compra-item-meta">${item.cantidad} ${item.unidad} · ${UI.escapeHtml(item.seccion)}</span>
         </div>
         <div class="compra-item-actions">
-          ${!enCasa ? `
-            <button class="inv-qty-btn compra-qty-minus" data-id="${item.id}">−</button>
-            <div class="inv-qty-display" style="min-width:40px">
-              <span class="inv-qty-value compra-qty-val" data-id="${item.id}">${item.cantidad}</span>
-              <span class="inv-qty-unit">${item.unidad}</span>
-            </div>
-            <button class="inv-qty-btn inv-qty-plus compra-qty-plus" data-id="${item.id}">+</button>
-            <button class="inv-action-btn inv-action-delete compra-item-rm" data-id="${item.id}" style="margin-left:var(--space-1)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-            </button>` : `<span class="badge badge-green">En casa</span>`}
+          <button class="inv-qty-btn compra-qty-minus" data-id="${item.id}">−</button>
+          <div class="inv-qty-display" style="min-width:40px">
+            <span class="inv-qty-value compra-qty-val" data-id="${item.id}">${item.cantidad}</span>
+            <span class="inv-qty-unit">${item.unidad}</span>
+          </div>
+          <button class="inv-qty-btn inv-qty-plus compra-qty-plus" data-id="${item.id}">+</button>
+          <button class="inv-action-btn inv-action-delete compra-item-rm" data-id="${item.id}" style="margin-left:var(--space-1)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
         </div>
       </div>`;
   }
@@ -306,59 +226,31 @@ const Compra = (() => {
       }
     });
 
-    // Panel inventario
-    const panelInvBtn = document.getElementById('compra-panel-inv-btn');
-    const panelInvEl  = document.getElementById('compra-panel-inv');
-    panelInvBtn?.addEventListener('click', () => {
-      if (panelInvEl.classList.contains('hidden')) {
-        const inv = App.getState().inventario || [];
-        panelInvEl.innerHTML = `
-          <div class="menu-panel-content">
-            <h3 class="section-title" style="margin-bottom:var(--space-3)">📦 Despensa</h3>
-            ${inv.length===0?'<p class="text-sm text-muted">Vacía.</p>':
-              inv.map(i=>`<div class="menu-panel-item">
-                <span class="text-sm">${UI.escapeHtml(i.nombre)}</span>
-                <span class="text-xs text-muted">${i.cantidad} ${i.unidad}</span>
-              </div>`).join('')}
-          </div>`;
-        panelInvEl.classList.remove('hidden');
-        panelInvBtn.textContent = '📦 Ocultar despensa';
-      } else {
-        panelInvEl.classList.add('hidden');
-        panelInvBtn.textContent = '📦 Ver despensa';
-      }
-    });
-
-    document.getElementById('compra-btn-regenerar')?.addEventListener('click', async () => {
-      const state = App.getState();
-      const menu = state.menuActual || await _buscarMenuActual();
-      if (!menu) return;
-      _compraActual = await _generarListaCompra(menu);
-      App.getState().compraActual = _compraActual;
-      _renderVista();
-    });
-
     // Guardar lista manualmente
     document.getElementById('compra-btn-guardar')?.addEventListener('click', async () => {
       if (!_compraActual) return;
       _guardarLocal(_compraActual);
-      await Sync.saveCompra(_compraActual).then(merged => { _compraActual = merged; App.getState().compraActual = merged; }).catch(()=>{});
-      UI.showToast(_pendingDriveSync ? 'Guardado en local (sin conexión)' : 'Lista guardada ✓', 'success');
+      try {
+        _compraActual = await Sync.saveCompra(_compraActual);
+        App.getState().compraActual = _compraActual;
+        _guardarLocal(_compraActual);
+        const pendiente = Sync.isPending('lista_compra.json');
+        UI.showToast(pendiente ? 'Guardado en local; se sincronizará al recuperar conexión' : 'Lista combinada y guardada en Drive ✓', 'success');
+        _renderVista();
+      } catch (e) {
+        UI.showToast('La lista sigue guardada en este dispositivo; no se pudo guardar en Drive', 'warning');
+      }
     });
 
     // Generar del último menú
     document.getElementById('compra-btn-generar-nuevo')?.addEventListener('click', async () => {
-      const menuActual = App.getState().menuActual || await _buscarMenuActual();
+      const menuActual = await _buscarMenuActual();
       if (!menuActual) { UI.showToast('No hay menú generado', 'error'); return; }
-      const ok = await UI.confirm('¿Generar nueva lista de la compra del menú? Los artículos manuales se conservarán.', 'Generar');
+      const ok = await UI.confirm('¿Añadir a la lista los artículos necesarios para el menú activo? Los artículos actuales se conservarán.', 'Generar');
       if (!ok) return;
-      const manuales = (_compraActual?.items||[]).filter(i=>i.esExtra);
-      _compraActual = await _generarListaCompra(menuActual);
-      _compraActual.items.push(...manuales);
-      App.getState().compraActual = _compraActual;
-      _guardarLocal(_compraActual);
-      _renderVista(view);
-      UI.showToast('Lista generada del menú', 'success');
+      await _anadirMenuALaLista(menuActual);
+      _renderVista();
+      UI.showToast('Artículos del menú añadidos a la lista', 'success');
     });
 
     document.getElementById('compra-btn-ir')?.addEventListener('click', () => {
@@ -380,10 +272,14 @@ const Compra = (() => {
         item.cantidad = Math.max(0, parseFloat((item.cantidad - (item.paqueteMinimo||1)).toFixed(2)));
         document.querySelector(`.compra-qty-val[data-id="${id}"]`).textContent = item.cantidad;
       } else if (e.target.closest('.compra-item-rm')) {
+        _compraActual.removidos = _compraActual.removidos || {};
+        _compraActual.removidos[_norm(item.nombre)] = new Date().toISOString();
         _compraActual.items = _compraActual.items.filter(i=>i.id!==id);
         e.target.closest('.compra-item-rev')?.remove();
         App.getState().compraActual = _compraActual;
       }
+      if (!e.target.closest('.compra-item-rm')) item.actualizadoEn = new Date().toISOString();
+      _guardarLocal(_compraActual);
     });
 
     // Artículo extra — con autocomplete del catálogo
@@ -398,9 +294,13 @@ const Compra = (() => {
       const nombre = extraInput?.value.trim();
       if (!nombre) return;
 
-      // Si viene del catálogo, usa sus datos; si es libre, valores por defecto
-      const art = _extraSeleccionado?.nombre.toLowerCase() === nombre.toLowerCase()
-        ? _extraSeleccionado : null;
+      const art = _extraSeleccionado && _norm(_extraSeleccionado.nombre) === _norm(nombre)
+        ? _extraSeleccionado
+        : catalogo.find(a => _norm(a.nombre) === _norm(nombre));
+      if (!art) {
+        _crearArticuloDesdeCompra(nombre);
+        return;
+      }
 
       const nuevo = {
         id:           `extra-${Date.now()}`,
@@ -414,21 +314,18 @@ const Compra = (() => {
         comprado:     false,
         noDisponible: false,
         esExtra:      true,
+        actualizadoEn: new Date().toISOString(),
       };
 
-      _compraActual.items.push(nuevo);
+      _compraActual.removidos = _compraActual.removidos || {};
+      delete _compraActual.removidos[_norm(nuevo.nombre)];
+      _compraActual = Sync.mergeCompras(_compraActual, { items: [nuevo], removidos: {} });
       App.getState().compraActual = _compraActual;
+      _guardarLocal(_compraActual);
       extraInput.value = '';
       _extraSeleccionado = null;
       if(suggBox) suggBox.classList.add('hidden');
-
-      // Añade a la lista sin re-renderizar todo
-      const lista = document.getElementById('compra-items-lista');
-      if (lista) {
-        const div = document.createElement('div');
-        div.innerHTML = _buildItemRevision(nuevo);
-        lista.appendChild(div.firstElementChild);
-      }
+      _renderVista();
       UI.showToast(`${nuevo.nombre} añadido`, 'success');
     }
 
@@ -553,6 +450,7 @@ const Compra = (() => {
         _ordenarPorSuper();
         _compraActual.estado = 'en_curso';
         App.getState().compraActual = _compraActual;
+        _guardarLocal(_compraActual);
         _vista = 'modo-compra';
         _renderVista();
       });
@@ -562,7 +460,7 @@ const Compra = (() => {
   // ── Vista 3: Modo compra ─────────────────────────────────────────
 
   function _renderModoCompra(view) {
-    const items = _compraActual.items.filter(i=>!i.enDespensa);
+    const items = _compraActual.items;
     const comprados  = items.filter(i=>i.comprado).length;
     const total      = items.length;
     const pct = total>0 ? Math.round(comprados/total*100) : 0;
@@ -601,7 +499,7 @@ const Compra = (() => {
 
       <div class="compra-modo-footer">
         <button class="btn btn-primary btn-full" id="compra-btn-cerrar">
-          ✓ Cerrar compra y actualizar despensa
+          ✓ Cerrar compra
         </button>
       </div>
     `;
@@ -639,14 +537,18 @@ const Compra = (() => {
       if (e.target.closest('.compra-check-btn')) {
         item.comprado = !item.comprado;
         item.noDisponible = false;
+        item.actualizadoEn = new Date().toISOString();
         _actualizarItemUI(item);
         _actualizarProgreso();
         App.getState().compraActual = _compraActual;
+        _guardarLocal(_compraActual);
       } else if (e.target.closest('.compra-nodisponible-btn')) {
         item.noDisponible = !item.noDisponible;
         item.comprado = false;
+        item.actualizadoEn = new Date().toISOString();
         _actualizarItemUI(item);
         App.getState().compraActual = _compraActual;
+        _guardarLocal(_compraActual);
       }
     });
 
@@ -671,7 +573,7 @@ const Compra = (() => {
   }
 
   function _actualizarProgreso() {
-    const items = _compraActual.items.filter(i=>!i.enDespensa);
+    const items = _compraActual.items;
     const comprados = items.filter(i=>i.comprado).length;
     const total = items.length;
     const pct = total>0 ? Math.round(comprados/total*100) : 0;
@@ -685,72 +587,33 @@ const Compra = (() => {
 
   async function _cerrarCompra() {
     const btn = document.getElementById('compra-btn-cerrar');
-    if (btn) { btn.disabled=true; btn.textContent='Actualizando despensa...'; }
-
-    const state = App.getState();
-    let inventario = [...(state.inventario||[])];
-
-    // Actualiza inventario con lo comprado
-    const comprados = _compraActual.items.filter(i=>i.comprado && !i.enDespensa);
-    for (const item of comprados) {
-      // Busca si ya existe en el inventario (por nombre)
-      const idx = inventario.findIndex(i=>i.nombre.toLowerCase()===item.nombre.toLowerCase());
-      if (idx !== -1) {
-        // Suma al stock existente
-        inventario[idx] = {
-          ...inventario[idx],
-          cantidad: parseFloat((inventario[idx].cantidad + item.cantidad).toFixed(2)),
-          actualizadoEn: new Date().toISOString(),
-        };
-      } else {
-        // Crea un nuevo artículo en el inventario
-        const artCatalogo = (state.catalogo||[]).find(a=>a.nombre.toLowerCase()===item.nombre.toLowerCase());
-        inventario.push({
-          id: `art-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
-          nombre: item.nombre,
-          categoria: item.seccion,
-          ubicacion: 'exterior',
-          cantidad: item.cantidad,
-          unidad: item.unidad,
-          fechaCaducidad: null,
-          fechaPreferenciaUso: null,
-          notificacionPreviaUso: false,
-          horasNotificacionPrevia: 24,
-          notas: null,
-          forzarUso: false,
-          paqueteMinimo: artCatalogo?.paqueteMinimo || 1,
-          actualizadoEn: new Date().toISOString(),
-        });
-      }
-    }
-
-    await App.setState('inventario', inventario);
-
-    // Marca la compra como completada
-    _compraActual.estado = 'completada';
-    _compraActual.fechaCierre = new Date().toISOString();
-
-    // Guarda en Drive
-    const fileName = `compra_${Dates.today()}.json`;
-    try {
-      // Guardamos en la carpeta de compras via Drive
-      await Drive.writeJson(fileName, _compraActual);
-    } catch { /* no crítico */ }
-
-    // Notifica artículos no disponibles
-    const noDisp = _compraActual?.items?.filter(i=>i.noDisponible) || [];
-
-    // Limpia el estado
-    App.getState().compraActual = null;
-    _compraActual = null;
+    if (btn) { btn.disabled=true; btn.textContent='Cerrando compra...'; }
+    const comprados = _compraActual.items.filter(i=>i.comprado);
+    _compraActual.removidos = _compraActual.removidos || {};
+    comprados.forEach(item => { _compraActual.removidos[_norm(item.nombre)] = new Date().toISOString(); });
+    _compraActual.items = _compraActual.items.filter(i=>!i.comprado);
+    _compraActual.estado = 'pendiente';
+    _compraActual.supermercadoId = null;
+    App.getState().compraActual = _compraActual;
+    _guardarLocal(_compraActual);
     _vista = 'lista';
-    if (noDisp.length > 0) {
-      UI.showToast(`Compra cerrada. ${noDisp.length} artículo${noDisp.length>1?'s':''} pendiente${noDisp.length>1?'s':''}`, 'warning', 5000);
-    } else {
-      UI.showToast('¡Compra completada! Despensa actualizada ✓', 'success', 4000);
+    let guardadoEnDrive = false;
+    try {
+      _compraActual = await Sync.saveCompra(_compraActual);
+      guardadoEnDrive = !Sync.isPending('lista_compra.json');
+      App.getState().compraActual = _compraActual;
+      _guardarLocal(_compraActual);
+    } catch (e) {
+      console.warn('[Compra] No se pudo guardar el cierre en Drive:', e.message);
     }
-
-    App.navigate('inventario');
+    UI.showToast(
+      guardadoEnDrive
+        ? `${comprados.length} artículo${comprados.length===1?' eliminado':'s eliminados'}; lista actualizada en Drive.`
+        : `Compra cerrada en este dispositivo; el guardado en Drive queda pendiente.`,
+      guardadoEnDrive ? 'success' : 'warning',
+      5000
+    );
+    _renderVista();
   }
 
   // ── Motor de generación de lista ─────────────────────────────────
@@ -759,7 +622,6 @@ const Compra = (() => {
     const state = App.getState();
     const platosDB  = state.platos   || [];
     const catalogo  = state.catalogo || [];
-    const inventario= state.inventario || [];
 
     // Acumula ingredientes necesarios por nombre
     const necesidades = {}; // nombre.toLowerCase() → { nombre, seccion, cantidad, unidad, paqueteMinimo }
@@ -779,9 +641,9 @@ const Compra = (() => {
           if (!plato?.ingredientes?.length) return;
 
           plato.ingredientes.forEach(ing => {
-            const key = ing.nombre.toLowerCase().trim();
+            const key = _norm(ing.nombre);
             // Busca info del artículo en el catálogo
-            const artCat = catalogo.find(a=>a.nombre.toLowerCase()===key);
+            const artCat = catalogo.find(a=>_norm(a.nombre)===key);
             if (!necesidades[key]) {
               necesidades[key] = {
                 nombre:          artCat?.nombre || ing.nombre,
@@ -798,55 +660,51 @@ const Compra = (() => {
       });
     });
 
-    // Cruza con inventario: resta stock disponible y calcula packs a comprar
+    // Calcula cantidades desde los ingredientes; la despensa no participa en la lista.
     const items = Object.values(necesidades).map((nec, idx) => {
-      const key = nec.nombre.toLowerCase();
-      const stockItems = inventario.filter(i=>i.nombre.toLowerCase()===key);
-      const stockTotal = stockItems.reduce((s,i)=>s+(i.cantidad||0), 0);
-
-      // Cantidad neta que falta (en unidades de consumo)
-      const falta = Math.max(0, nec.cantidad - stockTotal);
-
-      let packsAComprar = 0;
-      let cantidadFinal = 0;
-
-      if (falta > 0) {
-        // unidadesPorPack: cuántas unidades de consumo contiene 1 pack
-        const uppack = nec.unidadesPorPack || 1;
-        // Cuántos packs necesito para cubrir la falta
-        packsAComprar = Math.ceil(falta / uppack);
-        // Redondea al paqueteMinimo (mínimo de packs que se pueden comprar juntos)
-        const minPacks = nec.paqueteMinimo || 1;
-        packsAComprar = Math.ceil(packsAComprar / minPacks) * minPacks;
-        cantidadFinal = packsAComprar;
-      }
+      const unidadesPorPack = nec.unidadesPorPack || 1;
+      let cantidadFinal = Math.ceil(nec.cantidad / unidadesPorPack);
+      const minPacks = nec.paqueteMinimo || 1;
+      cantidadFinal = Math.max(minPacks, Math.ceil(cantidadFinal / minPacks) * minPacks);
 
       return {
         id:            `item-${Date.now()}-${idx}`,
         nombre:        nec.nombre,
         seccion:       nec.seccion,
-        cantidad:      falta > 0 ? cantidadFinal : 0,
+        cantidad:      cantidadFinal,
         cantidadNeta:  nec.cantidad,   // cuánto necesita el menú
-        stockEnCasa:   stockTotal,     // cuánto hay en inventario
         unidad:        nec.unidad,
         unidadesPorPack: nec.unidadesPorPack || 1,
         paqueteMinimo: nec.paqueteMinimo,
-        enDespensa:    stockTotal >= nec.cantidad,
+        enDespensa:    false,
         comprado:      false,
         noDisponible:  false,
         esExtra:       false,
+        actualizadoEn: new Date().toISOString(),
       };
     });
 
     return {
       id:              `compra-${Date.now()}`,
       menuId:          menu.id,
-      fechaCreacion:   Dates.today(),
+      fechaCreacion:   null,
       supermercadoId:  null,
       items,
       estado:          'pendiente',
       fechaCierre:     null,
     };
+  }
+
+  async function _anadirMenuALaLista(menu) {
+    const generada = await _generarListaCompra(menu);
+    _compraActual = _compraActual || _listaVacia();
+    _compraActual.removidos = _compraActual.removidos || {};
+    generada.items.forEach(item => { delete _compraActual.removidos[_norm(item.nombre)]; });
+    _compraActual = Sync.mergeCompras(_compraActual, generada);
+    _compraActual.menuId = menu.id;
+    _compraActual.menuActualizadoEn = menu.actualizadoEn || menu.confirmadoEn || null;
+    App.getState().compraActual = _compraActual;
+    _guardarLocal(_compraActual);
   }
 
   // ── Ordenar por supermercado ─────────────────────────────────────
@@ -874,6 +732,7 @@ const Compra = (() => {
 
   async function _buscarMenuActual() {
     try {
+      if (!Drive.getFolderIds().menusFolderId) await Drive.initFolderStructure();
       const archivos = await Drive.listMenuFiles();
       const hoy = Dates.today();
       for (const f of archivos) {
@@ -967,6 +826,8 @@ const Compra = (() => {
 
           // Añade a la lista de compra
           if (_compraActual) {
+            _compraActual.removidos = _compraActual.removidos || {};
+            delete _compraActual.removidos[_norm(nombre)];
             const item = {
               id: `extra-${Date.now()}`,
               nombre, cantidad, unidad,
@@ -974,17 +835,11 @@ const Compra = (() => {
               paqueteMinimo: cantidad,
               unidadesPorPack: cantidad,
               enDespensa: false, comprado: false, noDisponible: false, esExtra: true,
+              actualizadoEn: new Date().toISOString(),
             };
-            _compraActual.items.push(item);
+            _compraActual = Sync.mergeCompras(_compraActual, { items: [item], removidos: {} });
             App.getState().compraActual = _compraActual;
             _guardarLocal(_compraActual);
-
-            const lista = document.getElementById('compra-items-lista');
-            if (lista) {
-              const div = document.createElement('div');
-              div.innerHTML = _buildItemRevision(item);
-              lista.appendChild(div.firstElementChild);
-            }
           }
 
           UI.showToast(`${nombre} creado en el catálogo y añadido a la lista`, 'success');
@@ -993,6 +848,7 @@ const Compra = (() => {
           // Limpia el input de búsqueda
           const extraInput = document.getElementById('compra-extra-input');
           if (extraInput) extraInput.value = '';
+          _renderVista();
         }},
       ],
     });

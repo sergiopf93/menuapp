@@ -3,6 +3,18 @@
 > Aplicación web familiar para gestionar menús, despensa y lista de la compra.  
 > Stack: HTML + CSS + JavaScript vanilla · GitHub Pages · Google Drive API
 
+## Comportamiento funcional de MenuApp
+
+- El generador crea menús con los platos del catálogo y las reglas configuradas para la familia.
+- La lista de la compra es una lista única y atemporal. Se conserva en el dispositivo mientras se edita; **Guardar lista** combina la copia local con la de Drive y publica el resultado.
+- Cada persona puede añadir artículos manualmente desde el catálogo o crear un artículo nuevo en el catálogo y añadirlo a la lista.
+- Desde la misma lista se pueden añadir los ingredientes del menú confirmado que está activo en Drive. Esta acción incorpora los artículos a la lista existente y no la reinicia.
+- Al guardar, los artículos de ambas copias se combinan por nombre normalizado (sin distinguir mayúsculas ni acentos) y se elimina la duplicación. Si coinciden, queda un registro con la mayor cantidad indicada y el estado de compra más reciente.
+- El modo compra ordena los artículos por secciones del supermercado y permite marcarlos como checklist. Al cerrar, solo se retiran los marcados como comprados; el resto sigue en la lista local hasta guardar.
+- Cerrar una compra no actualiza ni crea artículos en la despensa. La despensa no participa en la generación de necesidades de compra.
+
+La app se usa en dos dispositivos con acceso al mismo Google Drive compartido. La copia local de cada dispositivo puede diferir hasta que se guarde; al abrir y guardar la lista se combina con la versión remota.
+
 ---
 
 ## ANTES DE EMPEZAR — Lo que necesitas
@@ -197,7 +209,7 @@ Si algo falla, consulta la sección **Solución de problemas** al final de este 
 3. Comparte la URL `https://TU_USUARIO.github.io/menuapp/` con ella
 4. Ella accede con su Google y verá los mismos datos (compartidos por el mismo Drive de la cuenta que configuró el Client ID)
 
-> ⚠️ **Importante**: los datos se guardan en el Google Drive de **quien inicia sesión**. Para que ambos veáis los mismos datos, ambos deben iniciar sesión con **la misma cuenta de Google** (la tuya), o en Fase 5 se implementará la compartición real de carpeta Drive entre dos cuentas distintas.
+> ⚠️ **Importante**: MenuApp guarda datos en el Drive de la cuenta autenticada. Para compartirlos entre dos personas, ambas deben tener acceso a la misma carpeta de MenuApp en Drive. La lista de compra combina los cambios locales de ambos dispositivos al consultar y guardar la lista.
 
 ---
 
@@ -244,18 +256,19 @@ menuapp/
 
 ```
 MenuApp/
+├── lista_compra.json       ← Lista única y atemporal de la compra
 ├── inventario.json         ← Stock de despensa
 ├── platos.json             ← Catálogo de platos
 ├── config.json             ← Configuración global
 ├── supermercados.json      ← Supermercados y secciones
 ├── menus/
 │   └── semana_YYYY-MM-DD.json
-├── compras/
-│   ├── compra_YYYY-MM-DD.json
-│   └── compra_YYYY-MM-DD.xlsx
-└── backups/
-    └── inventario_YYYY-MM-DD.json
+├── backups/
+│   └── inventario_YYYY-MM-DD.json
+└── compras/                ← Puede contener listas fechadas de versiones anteriores
 ```
+
+La lista actual se guarda en `lista_compra.json`. Al migrar desde una versión anterior, MenuApp combina las listas fechadas que encuentre en Drive; los archivos históricos se conservan.
 
 ---
 
@@ -264,12 +277,12 @@ MenuApp/
 | Fase | Qué hace | Estado |
 |------|----------|--------|
 | 0 | Infraestructura: GitHub Pages + OAuth + Drive | ✅ Esta guía |
-| 1 | Inventario completo (CRUD despensa) | 🔜 Siguiente |
-| 2 | Catálogo de platos | 🔜 |
-| 3 | Generador de menús + edición | 🔜 |
-| 4 | Lista de la compra + modo compra | 🔜 |
-| 5 | Notificaciones + sincronización multi-usuario | 🔜 |
-| 6 | IA local + PWA completa + pulido UX | 🔜 |
+| 1 | Inventario (CRUD despensa) | ✅ Módulo presente; no se actualiza desde el cierre de compra |
+| 2 | Catálogo de platos | ✅ Implementado |
+| 3 | Generador de menús + edición | ✅ Implementado |
+| 4 | Lista de la compra + modo compra | ✅ Implementada; lista única sincronizada |
+| 5 | Notificaciones + sincronización multiusuario | ⚠️ Sincronización implementada para datos compartidos en Drive; requiere acceso a la misma carpeta |
+| 6 | IA + PWA + pulido UX | ⚠️ PWA y carga de recetas mediante Gemini presentes; evolución pendiente |
 
 ---
 
@@ -291,10 +304,10 @@ MenuApp/
 - En Safari, la app debe estar instalada como PWA (Compartir → Añadir a pantalla de inicio) para que las notificaciones push funcionen
 - Asegúrate de abrir la URL exacta con `https://` (no `http://`)
 
-### Los datos no se sincronizan entre los dos usuarios
+### No aparecen los datos compartidos de Drive
 
-- En Fase 0, ambos deben usar la misma cuenta de Google
-- La sincronización entre cuentas distintas se implementa en Fase 5
+- Comprueba que la cuenta autenticada tiene acceso a la misma carpeta de MenuApp en Drive.
+- Pulsa **Guardar lista** para combinar la lista local con la versión remota de compra.
 
 ### "Sin conexión a Drive" en el dashboard
 
