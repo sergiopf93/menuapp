@@ -63,8 +63,8 @@ const Articulos = (() => {
    * @returns {object|null}
    */
   function findByNombre(nombre) {
-    const lower = nombre.toLowerCase().trim();
-    return (App.getState().catalogo || []).find(a => a.nombre.toLowerCase() === lower) || null;
+    const lower = Sync.normalize(nombre);
+    return (App.getState().catalogo || []).find(a => Sync.normalize(a.nombre) === lower) || null;
   }
 
   // ── Shell ────────────────────────────────────────────────────────
@@ -120,7 +120,7 @@ const Articulos = (() => {
     document.getElementById('art-search')?.addEventListener('input', (e) => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
-        _filtroTexto = e.target.value.trim().toLowerCase();
+        _filtroTexto = Sync.normalize(e.target.value);
         _renderList();
       }, 250);
     });
@@ -147,7 +147,7 @@ const Articulos = (() => {
 
     const filtered = catalogo.filter(a => {
       const matchCat  = _filtroCategoria === 'todas' || a.categoria === _filtroCategoria;
-      const matchText = !_filtroTexto || a.nombre.toLowerCase().includes(_filtroTexto);
+      const matchText = !_filtroTexto || Sync.normalize(a.nombre).includes(_filtroTexto);
       return matchCat && matchText;
     });
 
@@ -370,9 +370,9 @@ const Articulos = (() => {
     if (!catInput || !catSugg) return;
 
     catInput.addEventListener('input', () => {
-      const val = catInput.value.toLowerCase();
+      const val = Sync.normalize(catInput.value);
       if (!val) { catSugg.classList.add('hidden'); return; }
-      const matches = CATEGORIAS_ORDEN.filter(c => c.toLowerCase().includes(val));
+      const matches = CATEGORIAS_ORDEN.filter(c => Sync.normalize(c).includes(val));
       if (!matches.length) { catSugg.classList.add('hidden'); return; }
       catSugg.innerHTML = matches.map(c =>
         `<div class="categoria-option" data-v="${UI.escapeHtml(c)}">${UI.escapeHtml(c)}</div>`

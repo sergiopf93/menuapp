@@ -113,7 +113,7 @@ const Inventario = (() => {
     document.getElementById('inv-search')?.addEventListener('input', (e) => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
-        _filtroTexto = e.target.value.trim().toLowerCase();
+        _filtroTexto = Sync.normalize(e.target.value);
         _renderList();
       }, 250);
     });
@@ -132,8 +132,8 @@ const Inventario = (() => {
     const filtered = items.filter(item => {
       const matchUbic = _filtroUbic === 'todas' || item.ubicacion === _filtroUbic;
       const matchText = !_filtroTexto ||
-        item.nombre.toLowerCase().includes(_filtroTexto) ||
-        item.categoria.toLowerCase().includes(_filtroTexto);
+        Sync.normalize(item.nombre).includes(_filtroTexto) ||
+        Sync.normalize(item.categoria).includes(_filtroTexto);
       return matchUbic && matchText;
     });
 
@@ -390,9 +390,9 @@ const Inventario = (() => {
     const catSugg  = document.getElementById('inv-cat-sugg');
     if (!catInput||!catSugg) return;
     catInput.addEventListener('input',()=>{
-      const val = catInput.value.toLowerCase();
+      const val = Sync.normalize(catInput.value);
       if (!val) { catSugg.classList.add('hidden'); return; }
-      const matches = CATEGORIAS.filter(c=>c.toLowerCase().includes(val));
+      const matches = CATEGORIAS.filter(c=>Sync.normalize(c).includes(val));
       if (!matches.length) { catSugg.classList.add('hidden'); return; }
       catSugg.innerHTML = matches.map(c=>`<div class="categoria-option" data-v="${UI.escapeHtml(c)}">${UI.escapeHtml(c)}</div>`).join('');
       catSugg.classList.remove('hidden');

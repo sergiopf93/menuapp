@@ -1,0 +1,183 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const os = require('node:os');
+const http = require('node:http');
+const root = path.resolve(__dirname, '..');
+const output = process.env.MENUAPP_QA_OUTPUT || path.join(os.tmpdir(), 'menuapp-qa');
+fs.mkdirSync(output, { recursive: true });
+let browser;
+let server;
+
+(async () => {
+  server = http.createServer((req, res) => {
+    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    const file = path.resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`);
+    if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
+    fs.readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end(); return; }
+      const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+      res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');
+      res.end(data);
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  browser = await chromium.launch({ headless: true, channel: process.env.MENUAPP_BROWSER_CHANNEL || 'chrome' });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('https://**/*', route => route.abort());
+  await page.goto(origin);
+  await page.locator('#screen-app.active').waitFor();
+  assert.equal(await page.locator('#screen-login').isVisible(), false);
+  assert(await page.locator('#btn-conectar-drive').isVisible());
+  console.log('PASS Inicio sin OAuth ni SDK externo');
+  await page.evaluate(() => {
+    localStorage.setItem('pwa_banner_dismissed', '1');
+    document.querySelector('#pwa-banner')?.remove();
+    const state = App.getState();
+    state.catalogo = [{ id: 'judia', nombre: 'Judías verdes', categoria: 'Frutas y verduras', unidad: 'UN', paqueteMinimo: 1, activo: true }];
+    state.inventario = [{ id: 'judia', nombre: 'Judías verdes', categoria: 'Frutas y verduras', cantidad: 2, unidad: 'UN', ubicacion: 'exterior' }];
+    state.platos = [{ id: 'pl-judia', nombre: 'Judías verdes', tipoMenu: ['todos'], tipoComida: ['ambos'], tipoPlato: 'unico', etiquetas: [], activo: true, ingredientes: [] }];
+    state.config.supermercados = [{ id: 'super', nombre: 'Super de prueba', secciones: ['Otros', 'Lácteos'] }];
+    const monday = Dates.startOfWeek(Dates.today());
+    const menus = [-28, -21, -14, -7, 0, 7].map((offset, i) => ({
+      id: `menu-${i}`, fechaInicio: Dates.addDays(monday, offset), fechaFin: Dates.addDays(monday, offset + 6),
+      estado: 'confirmado', generadoEn: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+      dias: Dates.range(Dates.addDays(monday, offset), 7).map(fecha => ({ fecha, diaSemana: Dates.dayName(fecha), comida: { activo: true, platosMayores: [{ id: 'pl-judia', nombre: 'Judías verdes' }] }, cena: { activo: false, platosMayores: [] } })),
+    }));
+    state.menuActual = menus[4];
+    Drive.listMenuFiles = async () => menus.map(m => ({ id: m.id, name: `${m.id}.json` }));
+    Drive.readMenuJson = async id => menus.find(m => m.id === id);
+    Drive.getFolderIds = () => ({ rootFolderId: 'test', menusFolderId: 'test-menu' });
+    Drive.initFolderStructure = async () => ({});
+    let remote = null;
+    Drive.readJson = async name => name === 'lista_compra.json' ? remote : null;
+    Drive.writeJson = async (name, data) => { if (name === 'lista_compra.json') remote = structuredClone(data); };
+    Drive.listRootJsonFiles = async () => [];
+    Drive.listPurchaseFiles = async () => [];
+  });
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.locator('#nav-more-btn').click();
+    assert(await page.locator('#nav-more-menu').isVisible());
+    const box = await page.locator('#nav-more-menu').boundingBox();
+    assert(box.y >= 0 && box.y + box.height <= viewport.height, 'Más dentro del viewport');
+    await page.locator('#nav-more-menu button').last().click();
+    await page.locator('#view-config.active').waitFor();
+    assert.equal(await page.locator('#nav-more-btn').getAttribute('aria-expanded'), 'false');
+    console.log(`PASS Más y Configuración ${viewport.width}px`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [view, input, card] of [['platos', '#pl-search', '#pl-list'], ['articulos', '#art-search', '#art-list'], ['inventario', '#inv-search', '#inv-list']]) {
+    await page.evaluate(view => App.navigate(view), view);
+    await page.locator(input).fill('JUDIAS');
+    await page.waitForTimeout(350);
+    assert((await page.locator(card).innerText()).includes('Judías verdes'), `${view} ignora tildes`);
+  }
+  console.log('PASS búsquedas platos, artículos y despensa');
+  await page.evaluate(() => App.navigate('dashboard'));
+  await page.locator('#dashboard-menu-preview .menu-cal-scroll').waitFor();
+  await page.evaluate(() => App.navigate('menu'));
+  await page.locator('#view-menu .menu-cal-scroll').waitFor();
+  await page.waitForTimeout(150);
+  const scrollInfo = await page.evaluate(() => {
+    const scroll = document.querySelector('#view-menu .menu-cal-scroll');
+    const monday = Dates.startOfWeek(Dates.today());
+    const target = scroll.querySelector(`[data-fecha="${monday}"]`);
+    return { scroll: scroll.scrollLeft, delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left };
+  });
+  assert(scrollInfo.scroll > 0 && Math.abs(scrollInfo.delta) < 2, JSON.stringify(scrollInfo));
+  console.log('PASS menú abre lunes actual con histórico lateral y calendario Inicio presente');
+  await page.locator('#menu-btn-nuevo').click();
+  await page.locator('#menu-paso1-next').click();
+  await page.locator('#menu-paso2-next').click();
+  await page.locator('#menu-paso3-skip').click();
+  await page.locator('#menu-btn-confirmar').waitFor();
+  assert((await page.locator('.menu-paso-tabla').innerText()).includes('Se han priorizado vuestros hábitos'));
+  console.log('PASS asistente genera borrador adaptado al histórico disponible');
+  await page.evaluate(() => {
+    window.originalMenuList = Drive.listMenuFiles;
+    Drive.listMenuFiles = async () => (await window.originalMenuList()).filter(file => !['menu-4', 'menu-5'].includes(file.id));
+    App.navigate('menu');
+  });
+  await page.locator('#view-menu .menu-cal-scroll').waitFor();
+  await page.waitForTimeout(150);
+  const emptyWeek = await page.evaluate(() => {
+    const monday = Dates.startOfWeek(Dates.today());
+    const scroll = document.querySelector('#view-menu .menu-cal-scroll');
+    const target = scroll.querySelector(`[data-fecha="${monday}"]`);
+    return {
+      count: [...scroll.querySelectorAll('[data-fecha]')].filter(el => el.dataset.fecha >= monday).length,
+      delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left,
+      dateLabel: Dates.format(monday, 'numshort'),
+    };
+  });
+  assert.equal(emptyWeek.count, 7);
+  assert(Math.abs(emptyWeek.delta) < 2);
+  await page.locator('#menu-btn-kpi').click();
+  assert(!(await page.locator('.modal').innerText()).includes(emptyWeek.dateLabel), 'Los días vacíos no se evalúan como comidas planificadas');
+  await page.locator('.modal-close').click();
+  await page.evaluate(() => { Drive.listMenuFiles = window.originalMenuList; delete window.originalMenuList; });
+  console.log('PASS pestaña Menú abre semana actual vacía si solo hay histórico, sin falsos KPI');
+  await page.evaluate(() => {
+    const items = Array.from({ length: 45 }, (_, i) => ({ id: `item-${i}`, nombre: i === 44 ? 'Último Lácteo' : `Artículo ${i + 1}`, cantidad: 2, unidad: 'UN', seccion: i === 44 ? 'Lácteos' : 'Otros', paqueteMinimo: 1, comprado: false }));
+    localStorage.setItem('menuapp_compra_actual', JSON.stringify({ id: 'lista-compra', items, removidos: {}, estado: 'pendiente' }));
+    App.navigate('compra');
+  });
+  await page.locator('#compra-btn-guardar').waitFor();
+  await page.evaluate(() => { const el = document.getElementById('app-content'); el.scrollTop = 700; });
+  const actionBox = await page.locator('.compra-acciones').boundingBox();
+  const contentBox = await page.locator('#app-content').boundingBox();
+  assert(actionBox.y >= contentBox.y && actionBox.y <= contentBox.y + 17, `acciones sticky ${JSON.stringify({ actionBox, contentBox })}`);
+  await page.locator('#compra-btn-ir').click();
+  await page.locator('.compra-super-btn').click();
+  const last = page.locator('.compra-item-modo').last();
+  await last.scrollIntoViewIfNeeded();
+  const lastBox = await last.boundingBox();
+  const navBox = await page.locator('.bottom-nav').boundingBox();
+  assert(lastBox.y + lastBox.height <= navBox.y, 'Último artículo accesible por encima navegación');
+  await last.locator('.compra-check-btn').click();
+  assert.equal(await page.locator('.compra-progreso-num').innerText(), '1/45');
+  await last.locator('.compra-nodisponible-btn').click();
+  assert.equal(await page.locator('.compra-progreso-num').innerText(), '0/45');
+  await page.screenshot({ path: path.join(output, 'compra-mobile.png'), fullPage: true });
+  console.log('PASS compra larga, controles sticky, último artículo y progreso no-disponible');
+  assert.deepEqual(errors, [], `Errores JS: ${errors.join('; ')}`);
+  await page.evaluate(() => App.navigate('historial'));
+  await page.locator('#hist-analizar:not([disabled])').waitFor();
+  await page.locator('#hist-analizar').click();
+  await page.locator('.modal[role=dialog]').waitFor();
+  await page.waitForTimeout(100);
+  assert(await page.locator('.modal-title').isVisible());
+  assert.equal(await page.locator('.modal').evaluate(el => el.scrollTop), 0, 'El informe abre desde el principio');
+  assert((await page.locator('.modal').innerText()).includes('Judías verdes'));
+  await page.screenshot({ path: path.join(output, 'historial-mobile.png'), fullPage: true });
+  await page.locator('.modal-close').click();
+  console.log('PASS análisis historial con datos de prueba');
+  // Segunda visita real sin red: JS, CSS, iconos y caché local desde el Service Worker.
+  const offlineContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const offlinePage = await offlineContext.newPage();
+  await offlinePage.route('https://**/*', route => route.abort());
+  await offlinePage.goto(origin);
+  await offlinePage.locator('#screen-app.active').waitFor();
+  await offlinePage.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+    await Storage.set('cache_catalogo.json', [{ id: 'local', nombre: 'Artículo offline', categoria: 'Otros', unidad: 'UN' }]);
+  });
+  await offlinePage.reload();
+  await offlinePage.waitForFunction(() => navigator.serviceWorker.controller !== null);
+  await offlineContext.setOffline(true);
+  await offlinePage.reload({ waitUntil: 'domcontentloaded' });
+  await offlinePage.locator('#screen-app.active').waitFor();
+  await offlinePage.evaluate(() => App.navigate('articulos'));
+  assert((await offlinePage.locator('#art-list').innerText()).includes('Artículo offline'));
+  console.log('PASS recarga offline real con Service Worker y datos locales');
+
+})().catch(err => { console.error(err); process.exitCode = 1; }).finally(async () => {
+  if (browser) await browser.close();
+  if (server) await new Promise(resolve => server.close(resolve));
+});

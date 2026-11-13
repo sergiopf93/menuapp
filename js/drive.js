@@ -23,6 +23,7 @@ const Drive = (() => {
     fileIds: {}, // nombre → id
     etags: {},   // nombre → modifiedTime (para detectar cambios)
   };
+  let _initPromise = null;
 
   // ── API pública ──────────────────────────────────────────────────
 
@@ -32,12 +33,23 @@ const Drive = (() => {
    * @returns {Promise<{ rootId: string, menusId: string, comprasId: string }>}
    */
   async function initFolderStructure() {
+    if (_initPromise) return _initPromise;
+    _initPromise = _initFolders().catch(err => {
+      _initPromise = null;
+      throw err;
+    });
+    return _initPromise;
+  }
+
+  async function _initFolders() {
     UI.setLoadingMessage('Verificando estructura en Google Drive...');
 
     _cache.rootFolderId    = await _ensureFolder(ROOT_FOLDER_NAME, 'root');
-    _cache.menusFolderId   = await _ensureFolder('menus',   _cache.rootFolderId);
-    _cache.comprasFolderId = await _ensureFolder('compras', _cache.rootFolderId);
-    _cache.backupsFolderId = await _ensureFolder('backups', _cache.rootFolderId);
+    [_cache.menusFolderId, _cache.comprasFolderId, _cache.backupsFolderId] = await Promise.all([
+      _ensureFolder('menus', _cache.rootFolderId),
+      _ensureFolder('compras', _cache.rootFolderId),
+      _ensureFolder('backups', _cache.rootFolderId),
+    ]);
 
     // Guarda el ID de la carpeta raíz en IndexedDB para sesiones futuras
     await Storage.set('drive_root_folder_id', _cache.rootFolderId);
@@ -232,6 +244,7 @@ const Drive = (() => {
    * @returns {Promise<string|null>}
    */
   async function _getFileId(fileName, folderId) {
+    if (!folderId) throw new Error('Google Drive todavía no está conectado.');
     // Caché en memoria
     if (_cache.fileIds[fileName]) return _cache.fileIds[fileName];
 
@@ -242,7 +255,7 @@ const Drive = (() => {
       `${BASE_URL}/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
-    if (!res.ok) return null;
+    if (!res.ok) throw new Error(`Error buscando ${fileName}: ${res.status}`);
 
     const { files } = await res.json();
     if (!files || files.length === 0) return null;
@@ -317,13 +330,23 @@ const Drive = (() => {
     if (!folderId) return [];
     const token = _token();
     const q = `'${folderId}' in parents and mimeType='${mimeType}' and trashed=false`;
-    const res = await fetch(
-      `${BASE_URL}/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&orderBy=name desc`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!res.ok) return [];
-    const { files } = await res.json();
-    return files || [];
+    const files = [];
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({
+        q, fields: 'nextPageToken,files(id,name,modifiedTime)',
+        orderBy: 'name desc', pageSize: '1000',
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+      const res = await fetch(`${BASE_URL}/files?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Error consultando ficheros de Drive: ${res.status}`);
+      const page = await res.json();
+      files.push(...(page.files || []));
+      pageToken = page.nextPageToken || '';
+    } while (pageToken);
+    return files;
   }
 
   /**

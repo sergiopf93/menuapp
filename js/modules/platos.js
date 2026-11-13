@@ -639,9 +639,9 @@ const Platos = (() => {
       const sugg=document.getElementById(`pl-ing-sugg-${idx}`);
       if(!sugg) return;
       input.addEventListener('input',()=>{
-        const val=input.value.toLowerCase().trim();
+        const val=_norm(input.value);
         if(!val||!catalogo?.length){ sugg.classList.add('hidden'); return; }
-        const matches=catalogo.filter(a=>a.nombre.toLowerCase().includes(val)).slice(0,6);
+        const matches=catalogo.filter(a=>_norm(a.nombre).includes(val)).slice(0,6);
         if(!matches.length){ sugg.classList.add('hidden'); return; }
         sugg.innerHTML=matches.map(a=>`
           <div class="categoria-option" data-nombre="${UI.escapeHtml(a.nombre)}" data-cat="${UI.escapeHtml(a.categoria||'')}">

@@ -23,6 +23,7 @@ const Compra = (() => {
   // ── Estado local ─────────────────────────────────────────────────
   let _vista = 'lista';        // 'lista' | 'seleccion-super' | 'modo-compra'
   let _compraActual = null;    // objeto compra en curso
+  let _renderVersion = 0;
 
   // ── Persistencia offline ─────────────────────────────────────────
   // Guarda la lista en localStorage (inmediato, funciona offline)
@@ -72,12 +73,17 @@ const Compra = (() => {
     _renderVista(view);
   }
 
+  function refresh() {
+    if (_vista === 'lista') render();
+  }
+
   // ── Router de vistas ─────────────────────────────────────────────
 
   function _renderVista(view) {
+    const version = ++_renderVersion;
     if (!view) view = document.getElementById('view-compra');
     switch (_vista) {
-      case 'lista':            _renderLista(view);         break;
+      case 'lista':            _renderLista(view, version); break;
       case 'seleccion-super':  _renderSeleccionSuper(view); break;
       case 'modo-compra':      _renderModoCompra(view);    break;
     }
@@ -85,19 +91,22 @@ const Compra = (() => {
 
   // ── Vista 1: Lista de revisión ───────────────────────────────────
 
-  async function _renderLista(view) {
+  async function _renderLista(view, version) {
     const state   = App.getState();
     const menuActual = await _buscarMenuActual();
+    if (version !== _renderVersion || _vista !== 'lista') return;
     state.menuActual = menuActual;
     if (!_compraActual) _compraActual = _listaVacia();
 
     // La lista remota se incorpora a la local al abrir; guardar en Drive sigue siendo explícito.
     try {
       const driveLista = await Sync.readCompra();
+      if (version !== _renderVersion || _vista !== 'lista') return;
       _compraActual = Sync.mergeCompras(driveLista, _compraActual);
     } catch (e) {
       console.warn('[Compra] No se pudo consultar la lista de Drive:', e.message);
     }
+    if (version !== _renderVersion || _vista !== 'lista') return;
     state.compraActual = _compraActual;
     // Los datos antiguos pueden traer enDespensa=true. Despensa está desactivada,
     // así que esos artículos siguen perteneciendo a la lista de compra.
@@ -111,6 +120,20 @@ const Compra = (() => {
     view.innerHTML = `
       <div class="module-header">
         <h1 class="module-title">Lista de la compra</h1>
+      </div>
+
+      <div class="compra-acciones" aria-label="Acciones de la lista">
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-3)">
+          <button class="btn btn-secondary" id="compra-btn-guardar" style="flex:1">
+            💾 Guardar lista
+          </button>
+          <button class="btn btn-primary" style="flex:1" id="compra-btn-generar-nuevo" ${menuActual ? '' : 'disabled'}>
+            🔄 Generar del menú
+          </button>
+        </div>
+        <button class="btn btn-primary btn-full" id="compra-btn-ir" ${items.length===0?'disabled':''}>
+          🛒 Ir a comprar →
+        </button>
       </div>
 
       <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
@@ -154,20 +177,6 @@ const Compra = (() => {
         </div>
       </div>
 
-      <!-- Botón ir a comprar -->
-      <div style="margin-top:var(--space-6)">
-        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-3)">
-          <button class="btn btn-secondary" id="compra-btn-guardar" style="flex:1">
-            💾 Guardar lista
-          </button>
-          <button class="btn btn-primary" style="flex:1" id="compra-btn-generar-nuevo" ${menuActual ? '' : 'disabled'}>
-            🔄 Generar del menú
-          </button>
-        </div>
-        <button class="btn btn-primary btn-full" id="compra-btn-ir" ${items.length===0?'disabled':''}>
-          🛒 Ir a comprar →
-        </button>
-      </div>
     `;
 
     _bindListaEvents();
@@ -332,7 +341,16 @@ const Compra = (() => {
     document.getElementById('compra-btn-extra')?.addEventListener('click', _addExtra);
 
     extraInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { _addExtra(); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const active = suggBox?.querySelector('.compra-sugg-item.active');
+        if (active) {
+          _extraSeleccionado = catalogo.find(a => a.id === active.dataset.id) || null;
+          extraInput.value = active.dataset.nombre;
+        }
+        _addExtra();
+        return;
+      }
       if (e.key === 'Escape') { suggBox?.classList.add('hidden'); return; }
       // Navegar sugerencias con flechas
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -352,7 +370,7 @@ const Compra = (() => {
     let _suggTimer;
     extraInput?.addEventListener('input', () => {
       clearTimeout(_suggTimer);
-      const val = extraInput.value.trim().toLowerCase();
+      const val = _norm(extraInput.value);
       if (!val || val.length < 1) { suggBox?.classList.add('hidden'); return; }
 
       _suggTimer = setTimeout(() => {
@@ -361,7 +379,7 @@ const Compra = (() => {
           .sort((a, b) => {
             // Primero los que empiezan por el texto buscado
             const aStarts = _norm(a.nombre).startsWith(_norm(val));
-            const bStarts = b.nombre.toLowerCase().startsWith(val);
+            const bStarts = _norm(b.nombre).startsWith(_norm(val));
             if (aStarts && !bStarts) return -1;
             if (!aStarts && bStarts) return 1;
             return a.nombre.localeCompare(b.nombre, 'es');
@@ -487,6 +505,7 @@ const Compra = (() => {
             <div class="compra-progreso-fill" style="width:${pct}%"></div>
           </div>
         </div>
+        <button class="btn btn-primary btn-full" id="compra-btn-cerrar">✓ Cerrar compra</button>
       </div>
 
       <div id="compra-modo-lista">
@@ -497,11 +516,6 @@ const Compra = (() => {
           </div>`).join('')}
       </div>
 
-      <div class="compra-modo-footer">
-        <button class="btn btn-primary btn-full" id="compra-btn-cerrar">
-          ✓ Cerrar compra
-        </button>
-      </div>
     `;
 
     _bindModoCompraEvents();
@@ -547,6 +561,7 @@ const Compra = (() => {
         item.comprado = false;
         item.actualizadoEn = new Date().toISOString();
         _actualizarItemUI(item);
+        _actualizarProgreso();
         App.getState().compraActual = _compraActual;
         _guardarLocal(_compraActual);
       }
@@ -854,6 +869,6 @@ const Compra = (() => {
     });
   }
 
-  return { render };
+  return { render, refresh };
 
 })();

@@ -9,7 +9,7 @@
 - La lista de la compra es una lista única y atemporal. Se conserva en el dispositivo mientras se edita; **Guardar lista** combina la copia local con la de Drive y publica el resultado.
 - Cada persona puede añadir artículos manualmente desde el catálogo o crear un artículo nuevo en el catálogo y añadirlo a la lista.
 - Desde la misma lista se pueden añadir los ingredientes del menú confirmado que está activo en Drive. Esta acción incorpora los artículos a la lista existente y no la reinicia.
-- Al guardar, los artículos de ambas copias se combinan por nombre normalizado (sin distinguir mayúsculas ni acentos) y se elimina la duplicación. Si coinciden, queda un registro con la mayor cantidad indicada y el estado de compra más reciente.
+- Al guardar, los artículos de ambas copias se combinan por nombre normalizado (sin distinguir mayúsculas ni acentos) y se elimina la duplicación. Si coinciden, se conserva la edición más reciente, incluidas reducciones de cantidad; en empates o datos antiguos sin fecha se mantiene la cantidad mayor.
 - El modo compra ordena los artículos por secciones del supermercado y permite marcarlos como checklist. Al cerrar, solo se retiran los marcados como comprados; el resto sigue en la lista local hasta guardar.
 - Cerrar una compra no actualiza ni crea artículos en la despensa. La despensa no participa en la generación de necesidades de compra.
 

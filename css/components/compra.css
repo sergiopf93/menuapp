@@ -3,6 +3,15 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─── Lista de revisión ──────────────────────────────────────────── */
+.compra-acciones {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-4);
+  background: var(--color-bg);
+}
+
 .compra-item-rev {
   display: flex;
   align-items: center;
@@ -94,7 +103,7 @@
   gap: var(--space-3);
   margin-bottom: var(--space-4);
   position: sticky;
-  top: calc(var(--header-height));
+  top: 0;
   background: var(--color-bg);
   padding: var(--space-3) 0;
   z-index: 50;
@@ -194,14 +203,6 @@
 }
 .compra-nodisponible-btn.active { color: var(--color-danger); }
 .compra-nodisponible-btn:hover  { background: var(--color-danger-light); }
-
-/* Footer fijo del modo compra */
-.compra-modo-footer {
-  position: sticky;
-  bottom: calc(var(--bottom-nav-h) + var(--space-2));
-  padding: var(--space-3) 0;
-  background: var(--color-bg);
-}
 
 /* ─── Responsive ─────────────────────────────────────────────────── */
 @media (min-width: 768px) {
