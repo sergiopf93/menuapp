@@ -46,4 +46,4 @@ Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Tamb
 - [Mapa funcional y técnico](docs/CONTEXTO.md).
 - [Revisión del audio del 13/11/2026 y validaciones pendientes](docs/revision-2026-11-13.md).
 
-La rama de revisión requiere validación del usuario antes de integrarse en `main`. El generador calcula las preferencias al generar desde el histórico de Drive autorizado en la propia app. Su ajuste a la familia requiere validación con los datos reales; no se han cambiado automáticamente las frecuencias mínimas de los platos.
+El usuario autorizó integrar esta versión en `main` el 13/11/2026. Validación previa: 87 pruebas automáticas y batería de Chrome, incluida recarga offline. La comprobación con los dispositivos y el Drive reales sigue pendiente. El generador calcula las preferencias al generar desde el histórico de Drive autorizado en la propia app. Su ajuste a la familia requiere validación con los datos reales; no se han cambiado automáticamente las frecuencias mínimas de los platos.
