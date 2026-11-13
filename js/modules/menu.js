@@ -96,7 +96,9 @@ const Menu = (() => {
     for (const f of menusEnDrive) {
       try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
     }
-    const menuActivo = todosMenus.find(m => m.fechaInicio<=hoy&&m.fechaFin>=hoy&&m.estado!=='historico');
+    const menuActivo = todosMenus
+      .filter(m => m.fechaInicio<=hoy&&m.fechaFin>=hoy&&m.estado!=='historico')
+      .sort((a,b) => (b.generadoEn||'').localeCompare(a.generadoEn||''))[0];
     const diasCombinados = _combinarDiasDeMenus(todosMenus);
     const config = App.getState().config||{};
     const tieneBebe = (config.personas||[]).some(p=>p.tipo==='bebe');
@@ -131,14 +133,13 @@ const Menu = (() => {
       if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
-    // Scroll al lunes — usar setTimeout robusto tras render completo
-    setTimeout(() => _scrollCalendarioAHoy(), 300);
+    requestAnimationFrame(_scrollCalendarioAHoy);
   }
 
   // ── Scroll al lunes de semana actual ────────────────────────────
 
   function _scrollCalendarioAHoy() {
-    const scroll = document.querySelector('.menu-cal-scroll');
+    const scroll = document.querySelector('#view-menu.active .menu-cal-scroll');
     if (!scroll) return;
 
     // Usa Dates.startOfWeek igual que el filtro de la home
@@ -152,7 +153,8 @@ const Menu = (() => {
                    || todasCols[todasCols.length - 1];
     if (!targetCol) return;
 
-    scroll.scrollLeft = targetCol.offsetLeft;
+    const posicion = targetCol.getBoundingClientRect().left - scroll.getBoundingClientRect().left;
+    scroll.scrollLeft += posicion;
   }
 
   // ── Combinar días ────────────────────────────────────────────────
@@ -544,13 +546,12 @@ const Menu = (() => {
     const state=App.getState();
     const {platos,inventario,config}=state;
     const platosActivos=(platos||[]).filter(p=>p.activo!==false);
-    _setGenMsg('Cargando historial...');
-    const historial=await _cargarHistorialReciente(6);
-    const usadosReciente=_buildUsadosReciente(historial);
-    _setGenMsg('Calculando prioridades...');
-
     const horizInicio=_menuEnCurso.fechaInicio;
     const horizFin=Dates.addDays(horizInicio,_menuEnCurso.numSemanas*7-1);
+    _setGenMsg('Cargando historial...');
+    const historial=await _cargarHistorialReciente(6,horizInicio);
+    _setGenMsg('Calculando prioridades...');
+
     const consumidosAntesDel=_calcularConsumidosAntesDel(historial,horizInicio);
     const artsPrioritarios=new Set();
 
@@ -558,18 +559,7 @@ const Menu = (() => {
       const nombre=item.nombre.toLowerCase();
       const stockRestante=(item.cantidad||0)-(consumidosAntesDel[nombre]||0);
       if(stockRestante<=0) return;
-      if(item.forzarUso){
-        const yaEnHorizonte=historial.some(m=>
-          (m.dias||[]).some(d=>d.fecha>=horizInicio&&d.fecha<=horizFin&&
-            ['comida','cena'].some(mo=>
-              [...(d[mo]?.platosMayores||[]),...(d[mo]?.platosBebe||[])].some(pl=>
-                (platos||[]).find(p=>p.id===pl.id)?.ingredientes?.some(ing=>ing.nombre?.toLowerCase()===nombre)
-              )
-            )
-          )
-        );
-        if(!yaEnHorizonte) artsPrioritarios.add(nombre);
-      }
+      if(item.forzarUso) artsPrioritarios.add(nombre);
       if(item.fechaCaducidad){
         const s=Dates.expiryStatus(item.fechaCaducidad);
         if(item.fechaCaducidad>=horizInicio&&item.fechaCaducidad<=horizFin) artsPrioritarios.add(nombre);
@@ -613,15 +603,46 @@ const Menu = (() => {
     const usadosSemana   = new Map();  // platoId → [diasUsados] para detectar días consecutivos
     const contadorGrupos = {};         // grupo → veces usada esta semana (equilibrio nutricional)
     const usadosBebe     = [];  // array de ids (permite duplicados para contar usos)
+    const ultimoUsoMayores = new Map(); // conserva consecutivos al cambiar de semana
     const protPorDia     = {};
     const cfgMenus       = config?.configuracionMenus || {};
     const sobrasBebe     = {};         // platoId → días restantes
 
-    const MAX_SEMANA     = 2;          // máx veces por semana adultos
-    const MAX_CONSECUTIVOS = 1;        // máx días seguidos el mismo plato adultos
+    const diasHistoricos = _diasHistorial(historial,horizInicio);
+    const lunesInicial = Dates.startOfWeek(horizInicio);
+    diasHistoricos.forEach(dia => {
+      const indice = (Date.parse(dia.fecha)-Date.parse(horizInicio))/86400000;
+      ['comida','cena'].forEach(momento => {
+        const bloque = dia[momento];
+        if(!bloque?.activo) return;
+        if(bloque._mayActivo!==false) (bloque.platosMayores||[]).forEach(ref => {
+          ultimoUsoMayores.set(ref.id,indice);
+          if(dia.fecha>=lunesInicial){
+            _registrarMayor(usadosSemana,ref.id,indice);
+            const plato = platosActivos.find(p=>p.id===ref.id);
+            if(plato) _registrarGrupo(contadorGrupos,plato);
+          }
+        });
+        if(dia.fecha>=lunesInicial && bloque._bebeActivo!==false)
+          (bloque.platosBebe||[]).forEach(ref=>usadosBebe.push(ref.id));
+      });
+    });
+    let lunesActual = lunesInicial;
+    let usadosReciente = _buildUsadosReciente(historial,horizInicio,'mayores');
+    let usadosRecienteBebe = _buildUsadosReciente(historial,horizInicio,'bebe');
 
     for(let di=0; di<dias.length; di++){
       const dia = dias[di];
+      const lunes = Dates.startOfWeek(dia.fecha);
+      if(lunes!==lunesActual){
+        usadosSemana.clear();
+        Object.keys(contadorGrupos).forEach(grupo=>delete contadorGrupos[grupo]);
+        usadosBebe.length=0;
+        const anteriores = [...historial,{dias:dias.slice(0,di)}];
+        usadosReciente = _buildUsadosReciente(anteriores,dia.fecha,'mayores');
+        usadosRecienteBebe = _buildUsadosReciente(anteriores,dia.fecha,'bebe');
+        lunesActual=lunes;
+      }
 
       // ── COMIDA ──────────────────────────────────────────────────
       const blComida = dia.comida;
@@ -631,7 +652,7 @@ const Menu = (() => {
         if(blComida._mayActivo){
           let cands = _filtrarMayores({
             platos:platosActivos, momento:'comida',
-            usadosSemana, usadosReciente, artsPrioritarios,
+            usadosSemana, usadosReciente, artsPrioritarios, ultimoUsoMayores,
             protPorDia, diaIndex:di, esCena:false, cfgMenus,
             soloFacil: dia.facilComida, contadorGrupos,
           });
@@ -639,7 +660,7 @@ const Menu = (() => {
           if(!cands.length){
             cands = _filtrarMayores({
               platos:platosActivos, momento:'comida',
-              usadosSemana, usadosReciente:[], artsPrioritarios,
+              usadosSemana, usadosReciente:[], artsPrioritarios, ultimoUsoMayores,
               protPorDia, diaIndex:di, esCena:false, cfgMenus,
               soloFacil: dia.facilComida, contadorGrupos, relajarDistancia:true,
             });
@@ -654,18 +675,18 @@ const Menu = (() => {
           }
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
-            _registrarMayor(usadosSemana, p.id, di);
+            _registrarMayor(usadosSemana, p.id, di, ultimoUsoMayores);
             _registrarProteina(protPorDia, di, p);
             _registrarGrupo(contadorGrupos, p);
             if((p.diasSobras||0) > 0 && tieneBebe)
               sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
 
             if(p.tipoPlato === 'primero'){
-              const segundo = _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, di, 'comida');
+              const segundo = _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, di, 'comida', ultimoUsoMayores);
               blComida.platosMayores = segundo
                 ? [{id:p.id,nombre:p.nombre},{id:segundo.id,nombre:segundo.nombre}]
                 : [{id:p.id,nombre:p.nombre}];
-              if(segundo) _registrarMayor(usadosSemana, segundo.id, di);
+              if(segundo) _registrarMayor(usadosSemana, segundo.id, di, ultimoUsoMayores);
             } else {
               blComida.platosMayores = [{id:p.id,nombre:p.nombre}];
             }
@@ -677,7 +698,7 @@ const Menu = (() => {
           const diasFuturos = dias.slice(di+1, di+3);
           blComida.platosBebe = _generarBloqueBebeComida(
             blComida.platosMayores, platosActivos,
-            usadosBebe, usadosReciente, artsPrioritarios,
+            usadosBebe, usadosRecienteBebe, artsPrioritarios,
             sobrasBebe, cfgMenus, dia.facilComida, inventario||[],
             diasFuturos
           );
@@ -698,7 +719,7 @@ const Menu = (() => {
         if(blCena._mayActivo){
           let cands = _filtrarMayores({
             platos:platosActivos, momento:'cena',
-            usadosSemana, usadosReciente, artsPrioritarios,
+            usadosSemana, usadosReciente, artsPrioritarios, ultimoUsoMayores,
             protPorDia, diaIndex:di, esCena:true, cfgMenus,
             forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
           });
@@ -706,7 +727,7 @@ const Menu = (() => {
           if(!cands.length){
             cands = _filtrarMayores({
               platos:platosActivos, momento:'cena',
-              usadosSemana, usadosReciente:[], artsPrioritarios,
+              usadosSemana, usadosReciente:[], artsPrioritarios, ultimoUsoMayores,
               protPorDia, diaIndex:di, esCena:true, cfgMenus,
               forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
               relajarDistancia: true,
@@ -723,7 +744,7 @@ const Menu = (() => {
           const p = _elegirPlato(cands, [...artsPrioritarios], inventario||[]);
           if(p){
             blCena.platosMayores = [{id:p.id,nombre:p.nombre}];
-            _registrarMayor(usadosSemana, p.id, di);
+            _registrarMayor(usadosSemana, p.id, di, ultimoUsoMayores);
             _registrarProteina(protPorDia, di, p);
             _registrarGrupo(contadorGrupos, p);
           }
@@ -733,7 +754,7 @@ const Menu = (() => {
         if(tieneBebe && blCena._bebeActivo){
           blCena.platosBebe = _generarBloqueBebeConSobras(
             blCena.platosMayores, platosActivos,
-            usadosBebe, usadosReciente, artsPrioritarios,
+            usadosBebe, usadosRecienteBebe, artsPrioritarios,
             sobrasBebe, cfgMenus, dia.facilCena, 'cena', inventario||[],
             blComida.platosMayores, di  // platos mediodía + índice del día
           );
@@ -754,17 +775,16 @@ const Menu = (() => {
   function _calcularConsumidosAntesDel(historial, horizInicio) {
     // Suma las cantidades de ingredientes en menús con fechas ANTES del horizonte
     const consumidos={};
-    historial.forEach(m=>{
-      (m.dias||[]).filter(d=>d.fecha<horizInicio).forEach(d=>{
-        ['comida','cena'].forEach(mo=>{
-          const bloque=d[mo];
-          if(!bloque?.activo) return;
-          [...(bloque.platosMayores||[]),...(bloque.platosBebe||[])].forEach(pl=>{
-            const plObj=(App.getState().platos||[]).find(p=>p.id===pl.id);
-            (plObj?.ingredientes||[]).forEach(ing=>{
-              const k=(ing.nombre||'').toLowerCase();
-              consumidos[k]=(consumidos[k]||0)+(ing.cantidad||1);
-            });
+    _diasHistorial(historial,horizInicio).forEach(d=>{
+      ['comida','cena'].forEach(mo=>{
+        const bloque=d[mo];
+        if(!bloque?.activo) return;
+        [...(bloque._mayActivo===false?[]:bloque.platosMayores||[]),
+          ...(bloque._bebeActivo===false?[]:bloque.platosBebe||[])].forEach(pl=>{
+          const plObj=(App.getState().platos||[]).find(p=>p.id===pl.id);
+          (plObj?.ingredientes||[]).forEach(ing=>{
+            const k=(ing.nombre||'').toLowerCase();
+            consumidos[k]=(consumidos[k]||0)+(ing.cantidad||1);
           });
         });
       });
@@ -780,10 +800,11 @@ const Menu = (() => {
    * Registra que un plato adulto se usó en el día diaIndex.
    * Guarda array de días para detectar consecutivos.
    */
-  function _registrarMayor(usadosSemana, id, diaIndex) {
+  function _registrarMayor(usadosSemana, id, diaIndex, ultimoUsoMayores) {
     if(!usadosSemana.has(id)) usadosSemana.set(id, []);
     const arr = usadosSemana.get(id);
     if(!arr.includes(diaIndex)) arr.push(diaIndex); // evita doble registro si comida+cena mismo día
+    ultimoUsoMayores?.set(id,diaIndex);
   }
 
   /** Registra el grupo alimenticio de un plato para el control semanal */
@@ -796,7 +817,7 @@ const Menu = (() => {
   // ── Filtro candidatos adultos ────────────────────────────────────
 
   function _filtrarMayores({platos,momento,usadosSemana,usadosReciente,
-    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil,contadorGrupos}){
+    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil,contadorGrupos,ultimoUsoMayores}){
     const eqCC = cfgMenus?.equilibrioComidaCena !== false;
     const eqP  = cfgMenus?.equilibrioProteinas  !== false;
     const MAX  = 2;
@@ -809,12 +830,10 @@ const Menu = (() => {
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
       const diasUsados = usadosSemana.get(p.id) || [];
       if(diasUsados.length >= MAX) return false;
-      if(diasUsados.length > 0){
-        const ultimoDia = diasUsados[diasUsados.length - 1];
-        if(diaIndex - ultimoDia <= 1) return false;
-      }
+      const ultimoDia = ultimoUsoMayores?.get(p.id) ?? diasUsados[diasUsados.length-1];
+      if(ultimoDia!==undefined && diaIndex-ultimoDia<=1) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
-      if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
+      if(usadosReciente[p.id]!==undefined && usadosReciente[p.id] < minSem) return false;
       if(soloFacil && !p.preparacionFacil) return false;
 
       // Reglas alimenticias — limita grupos sobreutilizados
@@ -844,7 +863,7 @@ const Menu = (() => {
 
 
   /** Busca un segundo para adultos */
-  function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento) {
+  function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento, ultimoUsoMayores) {
     const MAX = 2;
     const cands = platosActivos.filter(p => {
       if(p.tipoPlato !== 'segundo') return false;
@@ -852,9 +871,10 @@ const Menu = (() => {
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
       const diasUsados = usadosSemana.get(p.id) || [];
       if(diasUsados.length >= MAX) return false;
-      if(diasUsados.length > 0 && diaIndex - diasUsados[diasUsados.length-1] <= 1) return false;
+      const ultimoDia = ultimoUsoMayores?.get(p.id) ?? diasUsados[diasUsados.length-1];
+      if(ultimoDia!==undefined && diaIndex-ultimoDia<=1) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
-      if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
+      if(usadosReciente[p.id]!==undefined && usadosReciente[p.id] < minSem) return false;
       return true;
     });
     if(!cands.length) return null;
@@ -1038,7 +1058,7 @@ const Menu = (() => {
       if(!momentoOk) return false;
       if(!p.permiteRepeticion && usadosBebe.includes(p.id)) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
-      if(usadosReciente[p.id] && usadosReciente[p.id] < minSem) return false;
+      if(usadosReciente[p.id]!==undefined && usadosReciente[p.id] < minSem) return false;
       return true;
     });
   }
@@ -1188,28 +1208,41 @@ const Menu = (() => {
     if(prot) registro[diaIndex]=prot;
   }
 
-  function _buildUsadosReciente(historial){
+  function _diasHistorial(historial,antesDe) {
+    return _combinarDiasDeMenus(historial.filter(m=>m.estado!=='borrador'))
+      .filter(d=>d.fecha<antesDe);
+  }
+
+  function _buildUsadosReciente(historial,fechaReferencia,perfil='mayores'){
     const res={};
-    historial.forEach((menu,semIdx)=>{
-      const sem=semIdx+1;
-      (menu.dias||[]).forEach(d=>{
-        ['comida','cena'].forEach(m=>{
-          [...(d[m]?.platosMayores||[]),...(d[m]?.platosBebe||[])].forEach(p=>{
-            if(!res[p.id]||res[p.id]>sem) res[p.id]=sem;
-          });
+    const lunesReferencia=Dates.startOfWeek(fechaReferencia);
+    const campo=perfil==='bebe'?'platosBebe':'platosMayores';
+    _diasHistorial(historial,fechaReferencia).forEach(d=>{
+      const sem=(Date.parse(lunesReferencia)-Date.parse(Dates.startOfWeek(d.fecha)))/604800000;
+      ['comida','cena'].forEach(m=>{
+        const bloque=d[m];
+        if(!bloque?.activo || (perfil==='bebe'?bloque._bebeActivo:bloque._mayActivo)===false) return;
+        (bloque[campo]||[]).forEach(p=>{
+          if(res[p.id]===undefined||res[p.id]>sem) res[p.id]=sem;
         });
       });
     });
     return res;
   }
 
-  async function _cargarHistorialReciente(n){
+  async function _cargarHistorialReciente(n,fechaReferencia){
     try{
       const arch=await Drive.listMenuFiles();
       const menus=[];
-      for(const f of arch.slice(0,n)){
-        const m=await Drive.readMenuJson(f.id).catch(()=>null);
-        if(m) menus.push(m);
+      const desde=Dates.addDays(Dates.startOfWeek(fechaReferencia),-n*7);
+      // El nombre del archivo no determina ni su antigüedad ni los días que contiene.
+      for(let i=0;i<arch.length;i+=4){
+        const lote=await Promise.all(arch.slice(i,i+4).map(f=>Drive.readMenuJson(f.id).catch(()=>null)));
+        lote.forEach(m=>{
+          if(!m||m.estado==='borrador') return;
+          const dias=(m.dias||[]).filter(d=>d.fecha>=desde&&d.fecha<fechaReferencia);
+          if(dias.length) menus.push({...m,dias});
+        });
       }
       return menus;
     }catch{return[];}
@@ -1321,7 +1354,7 @@ const Menu = (() => {
           : tabActual==='unico'   ? soloUnicos
           : tabActual==='primero' ? primeros
           : segundos;
-        if(filtroTexto) pool = pool.filter(p=>p.nombre.toLowerCase().includes(filtroTexto));
+        if(filtroTexto) pool = pool.filter(p=>Sync.normalize(p.nombre).includes(filtroTexto));
         return pool;
       }
 
@@ -1373,7 +1406,7 @@ const Menu = (() => {
 
       const inp = document.getElementById('popup-plato-search');
       inp?.focus();
-      inp?.addEventListener('input',e=>{ filtroTexto=e.target.value.toLowerCase(); refresh(); });
+      inp?.addEventListener('input',e=>{ filtroTexto=Sync.normalize(e.target.value); refresh(); });
 
       _bindPopupPlatos(fecha, momento, perfil, modal, arr, container);
     }, 100);
@@ -1392,7 +1425,7 @@ const Menu = (() => {
   }
 
   function _buildPopupPlatos(platos, filtro){
-    const f = filtro ? platos.filter(p=>p.nombre.toLowerCase().includes(filtro)) : platos;
+    const f = filtro ? platos.filter(p=>Sync.normalize(p.nombre).includes(Sync.normalize(filtro))) : platos;
     if(!f.length) return `<p class="text-sm text-muted" style="padding:var(--space-4)">Sin resultados.</p>`;
     return f.sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(p=>`
       <button class="popup-plato-item" data-id="${p.id}" data-nombre="${UI.escapeHtml(p.nombre)}" data-tipo="${p.tipoPlato}">

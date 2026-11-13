@@ -34,7 +34,7 @@ const UI = (() => {
 
   /**
    * Muestra una pantalla y oculta las demás.
-   * @param {'login'|'loading'|'app'} screenId
+   * @param {'loading'|'app'} screenId
    */
   function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
@@ -136,7 +136,7 @@ const UI = (() => {
     // Foco en el primer elemento interactivo
     setTimeout(() => {
       const firstFocusable = modal.querySelector('input, select, textarea, button:not(.modal-close)');
-      if (firstFocusable) firstFocusable.focus();
+      if (firstFocusable) firstFocusable.focus({ preventScroll: true });
     }, 50);
 
     let _closed = false;

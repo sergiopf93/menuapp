@@ -87,45 +87,6 @@ ul, ol { list-style: none; }
 .screen { display: none; width: 100%; min-height: 100dvh; }
 .screen.active { display: flex; flex-direction: column; }
 
-/* ─── Login ──────────────────────────────────────────────────────── */
-#screen-login {
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(160deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
-  padding: var(--space-8);
-}
-.login-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-6);
-  width: 100%;
-  max-width: 360px;
-}
-.login-logo { text-align: center; }
-.logo-icon  { font-size: 64px; display: block; margin-bottom: var(--space-3); }
-.logo-title { font-size: var(--font-size-2xl); font-weight: 700; color: #fff; }
-.logo-subtitle { color: rgba(255,255,255,.75); font-size: var(--font-size-sm); margin-top: var(--space-1); }
-
-.btn-google {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  background: #fff;
-  color: var(--color-text);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-md);
-  width: 100%;
-  justify-content: center;
-  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
-}
-.btn-google:active { transform: scale(.97); box-shadow: var(--shadow-sm); }
-.google-icon { width: 20px; height: 20px; flex-shrink: 0; }
-.login-note { color: rgba(255,255,255,.6); font-size: var(--font-size-xs); text-align: center; }
-
 /* ─── Loading ────────────────────────────────────────────────────── */
 #screen-loading {
   align-items: center;
@@ -144,9 +105,14 @@ ul, ol { list-style: none; }
 .loading-message { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 
 /* ─── App shell ──────────────────────────────────────────────────── */
-#screen-app { background: var(--color-bg); }
+#screen-app {
+  background: var(--color-bg);
+  height: 100dvh;
+  overflow: hidden;
+}
 
 .app-header {
+  flex-shrink: 0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -175,6 +141,7 @@ ul, ol { list-style: none; }
 
 .app-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-4);
   padding-bottom: calc(var(--bottom-nav-h) + var(--space-4));
@@ -211,6 +178,41 @@ ul, ol { list-style: none; }
 .nav-item svg { width: 22px; height: 22px; stroke: currentColor; }
 .nav-item.active { color: var(--color-primary); }
 .nav-item:active { background: var(--color-primary-light); }
+.nav-item--more[aria-expanded="true"] { color: var(--color-primary); }
+
+.nav-more-menu {
+  position: fixed;
+  z-index: 110;
+  width: 220px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+.nav-more-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+.nav-more-item:hover,
+.nav-more-item:active { background: var(--color-primary-light); }
+.nav-more-item:focus-visible,
+.nav-item--more:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.nav-more-item svg { flex-shrink: 0; }
 
 /* ─── Views ──────────────────────────────────────────────────────── */
 .view { display: none; }
@@ -551,12 +553,14 @@ ul, ol { list-style: none; }
 
 /* ─── Responsive: Desktop ────────────────────────────────────────── */
 @media (min-width: 1024px) {
-  #screen-app {
+  #screen-app.active {
     display: grid;
     grid-template-columns: 240px 1fr;
     grid-template-rows: var(--header-height) 1fr;
   }
   .app-header { grid-column: 1 / -1; }
+  .bottom-nav { grid-column: 1; grid-row: 2; }
+  .app-content { grid-column: 2; grid-row: 2; min-width: 0; }
   .bottom-nav {
     position: static;
     flex-direction: column;

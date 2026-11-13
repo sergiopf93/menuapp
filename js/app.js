@@ -25,121 +25,73 @@ const App = (() => {
    * Punto de entrada de la aplicación.
    * Se llama al cargar el DOM.
    */
+  let _appIniciada = false;
+  let _conectando = false;
+  let _ultimaSyncCorrecta = false;
+
   async function boot() {
-    // Registra el Service Worker
     _registerServiceWorker();
-
-    // Muestra la pantalla de carga
     UI.showScreen('loading');
-    UI.setLoadingMessage('Iniciando MenuApp...');
-
     try {
-      // 1. Inicializa Auth
-      await Auth.init();
-
-      // 2. Intenta restaurar sesión previa
-      const hasSession = await Auth.tryRestoreSession();
-
-      if (hasSession) {
-        await _onAuthenticated();
-      } else {
-        _showLogin();
-      }
+      await _loadFromCache();
+      await Auth.tryRestoreSession();
     } catch (err) {
-      console.error('[App] Error en arranque:', err);
-      UI.showScreen('login');
-      UI.showToast('Error al iniciar la app. Inténtalo de nuevo.', 'error');
+      console.warn('[App] No se pudo recuperar la caché:', err.message);
+      state.catalogo ||= [];
+      state.inventario ||= [];
+      state.platos ||= [];
+      state.config ||= _defaultConfig();
     }
-  }
-
-  // ── Login ────────────────────────────────────────────────────────
-
-  /**
-   * Muestra la pantalla de login y vincula el botón de Google.
-   */
-  function _showLogin() {
-    UI.showScreen('login');
-    const btn = document.getElementById('btn-google-login');
-    if (btn) {
-      btn.onclick = _handleLogin;
-    }
-  }
-
-  /**
-   * Gestiona el click en "Acceder con Google".
-   */
-  async function _handleLogin() {
-    const btn = document.getElementById('btn-google-login');
-    if (btn) btn.disabled = true;
-
-    try {
-      UI.showScreen('loading');
-      UI.setLoadingMessage('Conectando con Google...');
-      await Auth.login();
-      await _onAuthenticated();
-    } catch (err) {
-      console.error('[App] Error en login:', err);
-      UI.showScreen('login');
-      UI.showToast('No se pudo iniciar sesión. Verifica tu conexión.', 'error');
-      if (btn) btn.disabled = false;
-    }
-  }
-
-  // ── Post-autenticación ───────────────────────────────────────────
-
-  /**
-   * Se ejecuta tras una autenticación exitosa.
-   * Carga datos de Drive y muestra la app.
-   */
-  async function _onAuthenticated() {
     state.usuario = Auth.getUserInfo();
+    _abrirApp();
+    // El SDK solo se necesita para renovar la autorización, nunca para abrir Inicio.
+    Auth.init().catch(err => console.warn('[Auth]', err.message));
+    if (Auth.isAuthenticated() && navigator.onLine) _sincronizarDriveBackground();
+  }
 
+  function _abrirApp() {
+    UI.showScreen('app');
+    if (!_appIniciada) {
+      _appIniciada = true;
+      _bindHeaderControls();
+      _registerSyncListeners();
+      Sync.start();
+      Notificaciones.init();
+      UI.maybeShowPWABanner();
+      _scheduleNotificationCheck();
+      window.addEventListener('online', () => {
+        if (Auth.isAuthenticated()) _sincronizarDriveBackground();
+        _renderDriveStatus();
+      });
+      window.addEventListener('offline', _renderDriveStatus);
+    }
+    navigate('dashboard');
+  }
+
+  async function _conectarGoogle() {
+    if (_conectando) return;
+    if (!navigator.onLine) {
+      UI.showToast('Puedes seguir usando los datos locales. Conecta a internet para sincronizar.', 'info');
+      return;
+    }
+    _conectando = true;
     try {
-      // ── PASO 1: carga caché local (instantáneo) ──────────────────
-      const tieneCache = await _loadFromCache();
-
-
-      if (tieneCache) {
-        // Tenemos datos → mostramos la app YA
-        UI.showScreen('app');
-        navigate('dashboard');
-        _bindHeaderControls();
-        Sync.start();
-        _registerSyncListeners();
-        Notificaciones.init();
-        UI.maybeShowPWABanner();
-        _scheduleNotificationCheck();
-
-        // ── PASO 2: sincroniza con Drive en background ────────────
-  
-        _sincronizarDriveBackground();  // sin setTimeout — empieza inmediatamente
-
-      } else {
-        // Primera vez: necesitamos Drive para arrancar
-        UI.setLoadingMessage('Primera vez — descargando datos...');
-        await Drive.initFolderStructure();
-        await _loadFromDrive();
-
-        UI.showScreen('app');
-        navigate('dashboard');
-        _bindHeaderControls();
-        Sync.start();
-        _registerSyncListeners();
-        Notificaciones.init();
-        UI.maybeShowPWABanner();
-        _scheduleNotificationCheck();
+      if (!Auth.isAuthenticated()) {
+        await Auth.init();
+        await Auth.login();
+        state.usuario = Auth.getUserInfo();
       }
-
-      _limpiarDatosPlatos();
-
+      return await _sincronizarDriveBackground({ silent: false });
     } catch (err) {
-      console.error('[App] Error cargando datos:', err);
-      UI.showToast(`Error: ${err.message}`, 'error', 6000);
-      _showLogin();
+      console.warn('[App] Conexión con Google:', err.message);
+      UI.showToast(err.message, 'warning', 5000);
+    } finally {
+      _conectando = false;
+      _renderDriveStatus();
     }
   }
 
-  /** Carga datos desde IndexedDB (caché local). Devuelve true si había datos. */
+  /** Carga la caché local y recupera los cambios pendientes antes de conectar con Drive. */
   async function _loadFromCache() {
     const [catalogo, inventario, platos, config] = await Promise.all([
       Storage.get('cache_catalogo.json'),
@@ -148,114 +100,32 @@ const App = (() => {
       Storage.get('cache_config.json'),
     ]);
 
-    console.log('[App] Cache: platos=', !!platos, 'config=', !!config);
+    state.catalogo   = Sync.getPendingData('catalogo.json') || catalogo || [];
+    state.inventario = Sync.getPendingData('inventario.json') || inventario || [];
+    state.platos     = Sync.getPendingData('platos.json') || platos || [];
+    state.config     = Sync.getPendingData('config.json') || config || _defaultConfig();
 
-    if (!platos && !config) return false;
-
-    state.catalogo   = catalogo   || [];
-    state.inventario = inventario || [];
-    state.platos     = platos     || [];
-    state.config     = config     || _defaultConfig();
-
-    return true;
   }
 
-  /** Descarga todos los ficheros desde Drive y actualiza caché + estado. */
-  async function _loadFromDrive() {
-    const [catalogo, inventario, platos, config] = await Promise.all([
-      Drive.readJson('catalogo.json'),
-      Drive.readJson('inventario.json'),
-      Drive.readJson('platos.json'),
-      Drive.readJson('config.json'),
-    ]);
-
-    state.catalogo   = catalogo   || state.catalogo   || [];
-    state.inventario = inventario || state.inventario || [];
-    state.platos     = platos     || state.platos     || [];
-    state.config     = config     || state.config     || _defaultConfig();
-
-    if (!state.config.version) {
-      state.config = _defaultConfig();
-      Sync.save('config.json', state.config);
-    }
-
-    // Guarda en caché local
-    await Promise.all([
-      Storage.set('cache_catalogo.json',   state.catalogo),
-      Storage.set('cache_inventario.json', state.inventario),
-      Storage.set('cache_platos.json',     state.platos),
-      Storage.set('cache_config.json',     state.config),
-    ]);
-  }
-
-  /** Comprueba si Drive tiene versiones más nuevas y actualiza en background. */
-  async function _sincronizarDriveBackground() {
+  /** Conecta Drive después de abrir la app y conserva los cambios locales pendientes. */
+  async function _sincronizarDriveBackground({ silent = true } = {}) {
+    if (!Auth.isAuthenticated() || !navigator.onLine) return false;
     try {
       await Drive.initFolderStructure();
-
-      const ficheros = [
-        { file: 'catalogo.json',   key: 'catalogo'   },
-        { file: 'inventario.json', key: 'inventario'  },
-        { file: 'platos.json',     key: 'platos'      },
-        { file: 'config.json',     key: 'config'      },
-      ];
-
-      let huboActualizacion = false;
-
-      for (const { file, key } of ficheros) {
-        try {
-          const data = await Promise.race([
-            Drive.readJson(file),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
-          ]);
-          if (!data) continue;
-
-          const actualStr = JSON.stringify(state[key]);
-          const driveStr  = JSON.stringify(data);
-          if (actualStr === driveStr) continue;
-
-          state[key] = data;
-          await Storage.set(`cache_${file}`, data);
-          huboActualizacion = true;
-        } catch(e) {
-          console.warn(`[Sync] Error en ${file}:`, e.message);
-        }
-      }
-
-      if (huboActualizacion) {
-        _reRenderActiveView();
-        UI.showToast('Datos actualizados desde Drive', 'info', 2000);
-      }
-
-      // Actualiza el estado del sistema y el menú del dashboard
+      _ultimaSyncCorrecta = !!(await Sync.syncNow({ silent }));
       _renderDriveStatus();
-      // Refresca el calendario del dashboard (ahora Drive ya tiene folder IDs)
-      const calContainer = document.getElementById('dashboard-menu-preview');
-      if (calContainer) {
-        Menu.getCalendarioHTML().then(html => {
-          if (html) {
-            calContainer.className = '';
-            calContainer.style.padding = '';
-            calContainer.innerHTML = `
-              <div class="menu-calendario-wrapper">${html}</div>
-              <div style="display:flex;gap:var(--space-3);margin-top:var(--space-3)">
-                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="App.navigate('menu')">✏️ Editar menú</button>
-                <button class="btn btn-primary btn-sm" style="flex:1" onclick="App.navigate('compra')">🛒 Ir a la compra</button>
-              </div>`;
-          } else {
-            calContainer.innerHTML = `
-              <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">No hay menú para esta semana.</p>
-              <button class="btn btn-primary" onclick="App.navigate('menu')">Generar menú</button>`;
-          }
-        }).catch(()=>{});
+      if (document.getElementById('view-dashboard')?.classList.contains('active')) {
+        _renderDashboard();
       }
-
-    } catch(e) {
-      console.warn('[Sync] Background sync falló:', e.message);
-      _renderDriveStatus();  // actualiza aunque falle
+      return _ultimaSyncCorrecta;
+    } catch (err) {
+      _ultimaSyncCorrecta = false;
+      console.warn('[Sync] Sincronización pendiente:', err.message);
+      UI.showToast('No se pudo conectar con Drive. Tus cambios se conservan en este dispositivo.', 'warning');
+      _renderDriveStatus();
+      return false;
     }
   }
-
 
   // ── Navegación ───────────────────────────────────────────────────
 
@@ -421,52 +291,6 @@ const App = (() => {
   }
 
   /**
-   * Limpia datos corruptos en el catálogo de platos:
-   * - tipoMenu con valores duplicados (ej: ['mayores','mayores','mayores'])
-   * - tipoComida con valores duplicados
-   * - ingredientes duplicados por nombre
-   * - etiquetas duplicadas
-   * Guarda en Drive solo si hubo cambios.
-   */
-  async function _limpiarDatosPlatos() {
-    const platos = state.platos || [];
-    let hubocambios = false;
-
-    const platosLimpios = platos.map(p => {
-      const original = JSON.stringify(p);
-
-      // Normaliza tipoMenu
-      let tipoMenu = [...new Set(p.tipoMenu || ['todos'])];
-      if (tipoMenu.includes('todos')) tipoMenu = ['todos'];
-
-      // Normaliza tipoComida
-      const tipoComida = [...new Set(p.tipoComida || ['ambos'])];
-
-      // Deduplica etiquetas
-      const etiquetas = [...new Set(p.etiquetas || [])];
-
-      // Deduplica ingredientes por nombre (case-insensitive)
-      const ingMap = new Map();
-      (p.ingredientes || []).forEach(ing => {
-        const key = (ing.nombre||'').toLowerCase().trim();
-        if (key && !ingMap.has(key)) ingMap.set(key, ing);
-      });
-      const ingredientes = [...ingMap.values()];
-
-      const limpio = { ...p, tipoMenu, tipoComida, etiquetas, ingredientes };
-      if (JSON.stringify(limpio) !== original) hubocambios = true;
-      return limpio;
-    });
-
-    if (hubocambios) {
-      state.platos = platosLimpios;
-      await Sync.save('platos.json', platosLimpios);
-      await Storage.set('cache_platos.json', platosLimpios);
-      console.log('[App] Datos de platos limpiados y guardados en Drive');
-    }
-  }
-
-  /**
    * Muestra las alertas de caducidad en el dashboard.
     const container = document.getElementById('dashboard-alerts');
     if (!container || !state.inventario) return;
@@ -551,15 +375,23 @@ const App = (() => {
     const { rootFolderId } = Drive.getFolderIds();
     const user = Auth.getUserInfo();
     const isOnline = navigator.onLine;
+    const conectado = rootFolderId && Auth.isAuthenticated() && isOnline && _ultimaSyncCorrecta;
+    const syncBtn = document.getElementById('btn-sync');
+    if (syncBtn) {
+      syncBtn.title = Auth.isAuthenticated() ? 'Sincronizar' : 'Conectar con Google';
+      syncBtn.setAttribute('aria-label', syncBtn.title);
+    }
 
     el.innerHTML = `
-      <p><span class="${rootFolderId ? 'status-ok' : 'status-error'}">
-        ${rootFolderId ? '✓ Google Drive conectado' : '✗ Sin conexión a Drive'}
+      <p><span class="${conectado ? 'status-ok' : 'status-error'}">
+        ${conectado ? '✓ Google Drive conectado' : rootFolderId && Auth.isAuthenticated() && isOnline ? 'Sincronización pendiente o incompleta' : 'Datos guardados en este dispositivo'}
       </span></p>
+      ${!Auth.isAuthenticated() ? '<button class="btn btn-secondary btn-sm" id="btn-conectar-drive">Conectar con Google</button>' : ''}
       ${user ? `<p>👤 ${UI.escapeHtml(user.name)} (${UI.escapeHtml(user.email)})</p>` : ''}
       <p>${isOnline ? '🌐 Online' : '📴 Offline (modo caché)'}</p>
       <p>📦 ${state.inventario?.length ?? 0} en despensa · 🛒 ${state.catalogo?.length ?? 0} artículos · 🍽 ${state.platos?.length ?? 0} platos</p>
     `;
+    document.getElementById('btn-conectar-drive')?.addEventListener('click', _conectarGoogle);
   }
 
   // ── Header ───────────────────────────────────────────────────────
@@ -570,9 +402,9 @@ const App = (() => {
   function _bindHeaderControls() {
     document.getElementById('btn-sync')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-sync');
-      if (btn) btn.style.opacity = '0.5';
-      await Sync.syncNow();
-      if (btn) btn.style.opacity = '1';
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      try { await _conectarGoogle(); }
+      finally { if (btn) { btn.disabled = false; btn.style.opacity = '1'; } }
     });
 
     document.getElementById('btn-user-menu')?.addEventListener('click', () => {
@@ -585,6 +417,7 @@ const App = (() => {
              <p class="text-sm text-muted">${UI.escapeHtml(user.email)}</p>`
           : '<p>Sin sesión activa.</p>',
         buttons: [
+          ...(!Auth.isAuthenticated() ? [{ label: 'Conectar con Google', type: 'primary', onClick: _conectarGoogle }] : []),
           {
             label: 'Cerrar sesión',
             type: 'danger',
@@ -640,7 +473,7 @@ const App = (() => {
       case 'inventario': Inventario.render();    break;
       case 'articulos':  Articulos.render();     break;
       case 'platos':     Platos.render();        break;
-      case 'compra':     Compra.render();        break;
+      case 'compra':     Compra.refresh();       break;
       case 'historial':  Historial.render();     break;
       case 'config':     Configuracion.render(); break;
       // 'menu' no se re-renderiza automáticamente para no interrumpir
@@ -669,7 +502,7 @@ const App = (() => {
    */
   function _registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/menuapp/service-worker.js').catch((err) => {
+      navigator.serviceWorker.register('./service-worker.js').catch((err) => {
         console.warn('[App] Service Worker no registrado:', err.message);
       });
     }

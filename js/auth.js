@@ -26,6 +26,8 @@ const Auth = (() => {
   let _tokenExpiry = null;
   let _userInfo = null;
   let _tokenClient = null;
+  let _initPromise = null;
+  let _rejectLogin = null;
 
   // ── API pública ──────────────────────────────────────────────────
 
@@ -36,7 +38,9 @@ const Auth = (() => {
    * @returns {Promise<void>}
    */
   async function init() {
-    return new Promise((resolve, reject) => {
+    if (_tokenClient) return;
+    if (_initPromise) return _initPromise;
+    _initPromise = new Promise((resolve, reject) => {
       // Carga el SDK de Google Identity Services dinámicamente
       const script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
@@ -46,6 +50,13 @@ const Auth = (() => {
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
             callback: _handleTokenResponse,
+            error_callback: error => {
+              const rejectLogin = _rejectLogin;
+              _rejectLogin = null;
+              rejectLogin?.(new Error(error.type === 'popup_closed'
+                ? 'Se ha cerrado la conexión con Google.'
+                : 'No se pudo abrir la conexión con Google. Vuelve a pulsar Conectar.'));
+            },
           });
           resolve();
         } catch (err) {
@@ -54,7 +65,11 @@ const Auth = (() => {
       };
       script.onerror = () => reject(new Error('No se pudo cargar el SDK de Google Identity Services'));
       document.head.appendChild(script);
+    }).catch(err => {
+      _initPromise = null;
+      throw err;
     });
+    return _initPromise;
   }
 
   /**
@@ -68,14 +83,12 @@ const Auth = (() => {
       if (!stored) return false;
 
       const { accessToken, tokenExpiry, userInfo } = stored;
+      _userInfo = userInfo || null;
       if (!accessToken || !tokenExpiry) return false;
 
-      // Comprueba que el token no haya expirado (con 5 min de margen)
+      // Conserva el perfil para usar la app localmente aunque toque reconectar.
       const expiresIn = tokenExpiry - Date.now();
-      if (expiresIn < 5 * 60 * 1000) {
-        await Storage.remove('auth_session');
-        return false;
-      }
+      if (expiresIn < 60_000) return false;
 
       _accessToken = accessToken;
       _tokenExpiry = tokenExpiry;
@@ -95,6 +108,7 @@ const Auth = (() => {
     if (!_tokenClient) throw new Error('Auth no inicializado. Llama a Auth.init() primero.');
 
     return new Promise((resolve, reject) => {
+      _rejectLogin = reject;
       // Sobrescribe el callback para esta llamada concreta
       _tokenClient.callback = async (response) => {
         try {
@@ -102,6 +116,8 @@ const Auth = (() => {
           resolve();
         } catch (err) {
           reject(err);
+        } finally {
+          _rejectLogin = null;
         }
       };
 
@@ -116,8 +132,8 @@ const Auth = (() => {
    * @returns {Promise<void>}
    */
   async function logout() {
-    if (_accessToken) {
-      google.accounts.oauth2.revoke(_accessToken, () => {});
+    if (_accessToken && typeof google !== 'undefined') {
+      google.accounts?.oauth2?.revoke(_accessToken, () => {});
     }
     _accessToken = null;
     _tokenExpiry = null;

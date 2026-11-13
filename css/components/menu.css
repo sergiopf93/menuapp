@@ -42,6 +42,14 @@
 .menu-inv-alertas { margin-bottom:var(--space-4); }
 
 /* ─── Calendario wrapper ─────────────────────────────────────────── */
+.hist-analisis-tabla { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
+.hist-analisis-tabla th, .hist-analisis-tabla td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.hist-analisis-tabla thead { background: var(--color-surface-2); }
+
 .menu-calendario-wrapper {
   overflow:hidden;
   border-radius:var(--radius-lg);

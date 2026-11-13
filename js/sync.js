@@ -18,7 +18,28 @@ const Sync = (() => {
 
   let _pollTimer  = null;
   let _isActive   = true;
-  let _pendientes = {};  // { fileName: data } — cambios sin subir por falta de red
+  let _pendientes = {};  // { fileName: { data, ts } }
+  let _pendientesCargados = false;
+  let _started = false;
+  let _pollRunning = null;
+  const _queues = new Map();
+  const _revisions = {};
+
+  const _snapshot = data => JSON.parse(JSON.stringify(data));
+
+  function _queue(fileName, task) {
+    const previous = _queues.get(fileName) || Promise.resolve();
+    const current = previous.catch(() => {}).then(task);
+    _queues.set(fileName, current);
+    const cleanup = () => { if (_queues.get(fileName) === current) _queues.delete(fileName); };
+    current.then(cleanup, cleanup);
+    return current;
+  }
+
+  function _canSync() {
+    return navigator.onLine && Auth.isAuthenticated() &&
+      (!Drive.getFolderIds || !!Drive.getFolderIds().rootFolderId);
+  }
 
   /** Ficheros monitorizados y su estrategia de merge */
   const WATCHED = {
@@ -45,50 +66,40 @@ const Sync = (() => {
 
   function start() {
     _loadPendientes();
+    if (_started) return _pollRunning || Promise.resolve();
+    _started = true;
+    _isActive = document.visibilityState === 'visible';
+    document.addEventListener('visibilitychange', _onVisibilityChange);
+    window.addEventListener('online', _onOnline);
     _schedulePoll();
+    return _poll();
+  }
 
-    document.addEventListener('visibilitychange', () => {
-      _isActive = document.visibilityState === 'visible';
-      if (_isActive) _poll();  // comprueba cambios al volver al primer plano
-      _schedulePoll();
-    });
+  function _onVisibilityChange() {
+    _isActive = document.visibilityState === 'visible';
+    if (_isActive) _poll();
+    _schedulePoll();
+  }
 
-    window.addEventListener('online', async () => {
-      UI.showToast('Conexión restaurada. Sincronizando...', 'info', 2000);
-      await _subirPendientes();
-      await _poll();
-    });
+  function _onOnline() {
+    UI.showToast('Conexión restaurada. Sincronizando...', 'info', 2000);
+    return _poll();
   }
 
   function stop() {
+    _started = false;
     if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
+    document.removeEventListener('visibilitychange', _onVisibilityChange);
+    window.removeEventListener('online', _onOnline);
   }
 
-  /**
-   * Guarda un fichero: escribe en memoria + IndexedDB + sube a Drive en background.
-   * Es el método principal que usan todos los módulos para persistir cambios.
-   */
+  /** Guarda una instantánea local antes de intentar subirla. */
   async function save(fileName, data) {
-    // 1. Escribe en caché local (siempre, offline o no)
-    await Storage.set(`cache_${fileName}`, data);
-
-    // 2. Sube a Drive en background
-    if (navigator.onLine) {
-      try {
-        await Drive.writeJson(fileName, data);
-        // Elimina de pendientes si estaba
-        delete _pendientes[fileName];
-        _savePendientes();
-      } catch(e) {
-        console.warn(`[Sync] Error subiendo ${fileName}, queda pendiente:`, e.message);
-        _pendientes[fileName] = { data, ts: Date.now() };
-        _savePendientes();
-      }
-    } else {
-      // Sin red: marca como pendiente
-      _pendientes[fileName] = { data, ts: Date.now() };
-      _savePendientes();
-    }
+    const entry = _enqueue(fileName, data);
+    await _queue(fileName, async () => {
+      await Storage.set(`cache_${fileName}`, entry.data);
+      await _upload(fileName, entry);
+    });
   }
 
   /**
@@ -106,35 +117,26 @@ const Sync = (() => {
    */
   async function saveCompra(compra) {
     const fileName = 'lista_compra.json';
-    compra = _mergeCompra(_pendientes[fileName]?.data, compra);
-    if (navigator.onLine) {
-      try {
-        let convergida = false;
-        for (let intento = 0; intento < 3; intento++) {
-          compra = _mergeCompra(await readCompra(), compra);
-          await Drive.writeJson(fileName, compra);
-          const verificada = await Drive.readJson(fileName);
-          const fusionada = _mergeCompra(verificada, compra);
-          if (_mismoContenidoLista(verificada, fusionada)) {
-            compra = fusionada;
-            convergida = true;
-            break;
-          }
-          compra = fusionada;
-        }
-        if (!convergida) await Drive.writeJson(fileName, compra);
-        delete _pendientes[fileName];
-        _savePendientes();
-        await Storage.set(`cache_${fileName}`, compra);
-        return compra;
-      } catch(e) {
-        console.warn('[Sync] Lista de compra pendiente de subir:', e.message);
-      }
-    }
+    _loadPendientes();
+    const entry = _enqueue(fileName, _mergeCompra(_pendientes[fileName]?.data, compra));
+    return _queue(fileName, async () => {
+      await Storage.set(`cache_${fileName}`, entry.data);
+      const result = await _upload(fileName, entry);
+      return _snapshot(_pendientes[fileName]?.data || result);
+    });
+  }
 
-    _pendientes[fileName] = { data: compra, ts: Date.now() };
-    _savePendientes();
-    await Storage.set(`cache_${fileName}`, compra);
+  async function _writeCompra(compra) {
+    for (let intento = 0; intento < 3; intento++) {
+      compra = _mergeCompra(await readCompra(), compra);
+      await Drive.writeJson('lista_compra.json', compra);
+      const verificada = await Drive.readJson('lista_compra.json');
+      const fusionada = _mergeCompra(verificada, compra);
+      if (_mismoContenidoLista(verificada, fusionada)) return fusionada;
+      compra = fusionada;
+    }
+    // El merge reduce conflictos, pero Drive no ofrece aquí una escritura condicional.
+    await Drive.writeJson('lista_compra.json', compra);
     return compra;
   }
 
@@ -181,12 +183,18 @@ const Sync = (() => {
   /**
    * Fuerza sincronización inmediata de todos los ficheros.
    */
-  async function syncNow() {
+  async function syncNow({ silent = false } = {}) {
     if (!Auth.isAuthenticated()) return;
-    UI.showToast('Sincronizando...', 'info', 1500);
-    await _subirPendientes();
-    await _poll(true);  // fuerza descarga aunque ETag no haya cambiado
-    UI.showToast('✓ Sincronizado', 'success', 2000);
+    if (!silent) UI.showToast('Sincronizando...', 'info', 1500);
+    const descargado = await _poll(true);  // fuerza descarga aunque ETag no haya cambiado
+    const pendiente = Object.keys(_pendientes).length > 0;
+    const sincronizado = descargado && !pendiente;
+    if (!silent) {
+      const mensaje = pendiente ? 'Hay cambios pendientes de sincronizar'
+        : sincronizado ? '✓ Sincronizado' : 'No se pudo completar la sincronización';
+      UI.showToast(mensaje, sincronizado ? 'success' : 'warning', 2000);
+    }
+    return sincronizado;
   }
 
   // ── Merge de lista de la compra ───────────────────────────────────
@@ -195,13 +203,18 @@ const Sync = (() => {
    * Fusiona versiones de la lista por nombre normalizado y conserva las retiradas.
    */
   function _mergeCompra(base, nueva) {
-    const removidos = { ...(base?.removidos || {}), ...(nueva?.removidos || {}) };
+    const removidos = {};
+    for (const lista of [base, nueva]) {
+      for (const [nombre, fecha] of Object.entries(lista?.removidos || {})) {
+        const key = normalize(nombre);
+        if (key && fecha > (removidos[key] || '')) removidos[key] = fecha;
+      }
+    }
     const items = new Map();
     [...(base?.items || []), ...(nueva?.items || [])].forEach(item => {
       const key = normalize(item.nombre);
       if (!key) return;
       if (removidos[key] && (!item.actualizadoEn || item.actualizadoEn <= removidos[key])) return;
-      if (item.actualizadoEn && removidos[key] && item.actualizadoEn > removidos[key]) delete removidos[key];
       const anterior = items.get(key);
       if (!anterior) {
         items.set(key, { ...item });
@@ -211,8 +224,11 @@ const Sync = (() => {
       items.set(key, {
         ...anterior,
         ...item,
+        ...itemMasReciente,
         id: anterior.id || item.id,
-        cantidad: Math.max(Number(anterior.cantidad) || 0, Number(item.cantidad) || 0),
+        cantidad: (anterior.actualizadoEn || '') !== (item.actualizadoEn || '')
+          ? itemMasReciente.cantidad
+          : Math.max(Number(anterior.cantidad) || 0, Number(item.cantidad) || 0),
         comprado: !!itemMasReciente.comprado,
         noDisponible: !!itemMasReciente.noDisponible,
       });
@@ -233,39 +249,75 @@ const Sync = (() => {
   // ── Pendientes ────────────────────────────────────────────────────
 
   function _savePendientes() {
-    try { localStorage.setItem('menuapp_sync_pendientes', JSON.stringify(_pendientes)); } catch{}
+    try { localStorage.setItem('menuapp_sync_pendientes', JSON.stringify(_pendientes)); }
+    catch (e) { console.warn('[Sync] No se pudo persistir la cola local:', e.message); }
   }
 
   function _loadPendientes() {
+    if (_pendientesCargados) return;
+    _pendientesCargados = true;
     try {
-      const raw = localStorage.getItem('menuapp_sync_pendientes');
-      _pendientes = raw ? JSON.parse(raw) : {};
-    } catch { _pendientes = {}; }
+      const raw = JSON.parse(localStorage.getItem('menuapp_sync_pendientes') || '{}');
+      for (const [fileName, entry] of Object.entries(raw || {})) {
+        if (!entry || !Object.hasOwn(entry, 'data')) continue;
+        _pendientes[fileName] = entry;
+        _revisions[fileName] = 1;
+      }
+    } catch (e) { console.warn('[Sync] No se pudo leer la cola local:', e.message); }
+  }
+
+  function _enqueue(fileName, data) {
+    _loadPendientes();
+    const entry = { data: _snapshot(data), ts: Date.now() };
+    _revisions[fileName] = (_revisions[fileName] || 0) + 1;
+    _pendientes[fileName] = entry;
+    _savePendientes();
+    return entry;
+  }
+
+  function getRevision(fileName) {
+    _loadPendientes();
+    return _revisions[fileName] || 0;
+  }
+
+  function getPendingData(fileName) {
+    _loadPendientes();
+    return _pendientes[fileName] ? _snapshot(_pendientes[fileName].data) : null;
+  }
+
+  async function _upload(fileName, entry) {
+    if (!_canSync() || _pendientes[fileName] !== entry) return entry.data;
+    let data = entry.data;
+    try {
+      if (fileName === 'lista_compra.json') data = await _writeCompra(data);
+      else if (fileName.startsWith('menus/')) await Drive.writeMenuJson(fileName.slice(6), data);
+      else await Drive.writeJson(fileName, data);
+      if (_pendientes[fileName] === entry) {
+        await Storage.set(`cache_${fileName}`, data);
+        if (_pendientes[fileName] === entry) {
+          delete _pendientes[fileName];
+          _savePendientes();
+        }
+      }
+    } catch (e) {
+      console.warn(`[Sync] Error subiendo ${fileName}, queda pendiente:`, e.message);
+    }
+    return data;
   }
 
   async function _subirPendientes() {
-    const keys = Object.keys(_pendientes);
-    if (!keys.length) return;
-    for (const fileName of keys) {
-      try {
-        if (fileName === 'lista_compra.json') {
-          await saveCompra(_pendientes[fileName].data);
-          if (_pendientes[fileName]) continue;
-        } else {
-          await Drive.writeJson(fileName, _pendientes[fileName].data);
-        }
-        delete _pendientes[fileName];
-        console.log(`[Sync] Pendiente subido: ${fileName}`);
-      } catch(e) {
-        console.warn(`[Sync] Error subiendo pendiente ${fileName}:`, e.message);
-      }
+    _loadPendientes();
+    if (!_canSync()) return;
+    for (const fileName of Object.keys(_pendientes)) {
+      const entry = _pendientes[fileName];
+      if (entry) await _queue(fileName, () => _upload(fileName, entry));
     }
-    _savePendientes();
   }
 
   // ── Polling ───────────────────────────────────────────────────────
 
   function _schedulePoll() {
+    if (!_started) return;
     if (_pollTimer) clearTimeout(_pollTimer);
     const interval = _isActive ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_BG;
     _pollTimer = setTimeout(async () => {
@@ -274,37 +326,44 @@ const Sync = (() => {
     }, interval);
   }
 
-  async function _poll(forzar=false) {
-    const state = App.getState();
-    for (const [fileName, estrategia] of Object.entries(WATCHED)) {
-      try {
-        const changed = forzar || await Drive.hasChanged(fileName);
-        if (!changed) continue;
+  function _poll(forzar=false) {
+    if (_pollRunning) return forzar ? _pollRunning.then(() => _poll(true)) : _pollRunning;
+    _pollRunning = _runPoll(forzar).finally(() => { _pollRunning = null; });
+    return _pollRunning;
+  }
 
-        console.log(`[Sync] Cambio en Drive: ${fileName}`);
+  async function _runPoll(forzar) {
+    await _subirPendientes();
+    if (!_canSync()) return false;
+    let descargado = true;
+    const state = App.getState();
+    for (const fileName of Object.keys(WATCHED)) {
+      try {
+        if (_pendientes[fileName]) continue;
+        const revision = getRevision(fileName);
+        const changed = forzar || await Drive.hasChanged(fileName);
+        if (!changed || _pendientes[fileName] || getRevision(fileName) !== revision) continue;
         const newData = await Drive.readJson(fileName);
         if (!newData) continue;
 
-        await Storage.set(`cache_${fileName}`, newData);
-
-        // Actualiza el estado en memoria
-        const key = fileName.replace('.json','');
-        if (key === 'catalogo')   state.catalogo   = newData;
-        if (key === 'inventario') state.inventario  = newData;
-        if (key === 'platos')     state.platos      = newData;
-        if (key === 'config')     state.config      = newData;
-
-        // Llama a listeners registrados (actualiza vistas)
-        if (_listeners[fileName]) {
-          _listeners[fileName].forEach(cb => { try { cb(newData); } catch{} });
-        }
-        // Avisa al usuario si es cambio externo (no nuestro)
-        if (!forzar) _notifyUser(fileName);
-
+        await _queue(fileName, async () => {
+          if (_pendientes[fileName] || getRevision(fileName) !== revision) return;
+          await Storage.set(`cache_${fileName}`, newData);
+          if (_pendientes[fileName] || getRevision(fileName) !== revision) return;
+          const key = fileName.replace('.json', '');
+          if (JSON.stringify(state[key]) === JSON.stringify(newData)) return;
+          state[key] = newData;
+          if (_listeners[fileName]) {
+            _listeners[fileName].forEach(cb => { try { cb(newData); } catch {} });
+          }
+          if (!forzar) _notifyUser(fileName);
+        });
       } catch(e) {
+        descargado = false;
         console.warn(`[Sync] Error en poll ${fileName}:`, e.message);
       }
     }
+    return descargado;
   }
 
   function _notifyUser(fileName) {
@@ -326,6 +385,6 @@ const Sync = (() => {
   }
 
   // ── Export ────────────────────────────────────────────────────────
-  return { start, stop, syncNow, save, saveMenu, saveCompra, readCompra, mergeCompras: _mergeCompra, isPending: fileName => !!_pendientes[fileName], normalize, onFileChange };
+  return { start, stop, syncNow, save, saveMenu, saveCompra, readCompra, mergeCompras: _mergeCompra, isPending: fileName => getPendingData(fileName) !== null, getPendingData, getRevision, normalize, onFileChange };
 
 })();
