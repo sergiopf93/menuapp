@@ -92,6 +92,37 @@ let server;
   });
   assert(scrollInfo.scroll > 0 && Math.abs(scrollInfo.delta) < 2, JSON.stringify(scrollInfo));
   console.log('PASS menú abre lunes actual con histórico lateral y calendario Inicio presente');
+  await page.locator('#menu-btn-nuevo').click();
+  await page.locator('#menu-paso1-next').click();
+  await page.locator('#menu-paso2-next').click();
+  await page.locator('#menu-paso3-skip').click();
+  await page.locator('#menu-btn-confirmar').waitFor();
+  assert((await page.locator('.menu-paso-tabla').innerText()).includes('Se han priorizado vuestros hábitos'));
+  console.log('PASS asistente genera borrador adaptado al histórico disponible');
+  await page.evaluate(() => {
+    window.originalMenuList = Drive.listMenuFiles;
+    Drive.listMenuFiles = async () => (await window.originalMenuList()).filter(file => !['menu-4', 'menu-5'].includes(file.id));
+    App.navigate('menu');
+  });
+  await page.locator('#view-menu .menu-cal-scroll').waitFor();
+  await page.waitForTimeout(150);
+  const emptyWeek = await page.evaluate(() => {
+    const monday = Dates.startOfWeek(Dates.today());
+    const scroll = document.querySelector('#view-menu .menu-cal-scroll');
+    const target = scroll.querySelector(`[data-fecha="${monday}"]`);
+    return {
+      count: [...scroll.querySelectorAll('[data-fecha]')].filter(el => el.dataset.fecha >= monday).length,
+      delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left,
+      dateLabel: Dates.format(monday, 'numshort'),
+    };
+  });
+  assert.equal(emptyWeek.count, 7);
+  assert(Math.abs(emptyWeek.delta) < 2);
+  await page.locator('#menu-btn-kpi').click();
+  assert(!(await page.locator('.modal').innerText()).includes(emptyWeek.dateLabel), 'Los días vacíos no se evalúan como comidas planificadas');
+  await page.locator('.modal-close').click();
+  await page.evaluate(() => { Drive.listMenuFiles = window.originalMenuList; delete window.originalMenuList; });
+  console.log('PASS pestaña Menú abre semana actual vacía si solo hay histórico, sin falsos KPI');
   await page.evaluate(() => {
     const items = Array.from({ length: 45 }, (_, i) => ({ id: `item-${i}`, nombre: i === 44 ? 'Último Lácteo' : `Artículo ${i + 1}`, cantidad: 2, unidad: 'UN', seccion: i === 44 ? 'Lácteos' : 'Otros', paqueteMinimo: 1, comprado: false }));
     localStorage.setItem('menuapp_compra_actual', JSON.stringify({ id: 'lista-compra', items, removidos: {}, estado: 'pendiente' }));

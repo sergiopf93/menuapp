@@ -8,6 +8,7 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 - **Más** abre Artículos, Historial y Configuración.
 - Menú abre en la semana actual y conserva el desplazamiento lateral hacia otras semanas.
 - Las búsquedas de nombres ignoran tildes y mayúsculas.
+- El generador adapta la elección a los menús confirmados de las seis semanas anteriores y los días ya transcurridos de la semana del corte: frecuencia del plato, día de la semana, comida/cena y adulto/bebé. Necesita dos semanas observadas por perfil y momento; sin ellas utiliza selección neutral. Conserva stock, sobras y reglas del catálogo; las novedades siguen teniendo oportunidad.
 - Compra mantiene una lista atemporal. **Guardar lista** publica explícitamente los cambios; sus controles y **Cerrar compra** permanecen en la parte superior al desplazarse. Cerrar retira únicamente los artículos comprados.
 - Al combinar la lista se conserva la edición más reciente de cada artículo, incluidas reducciones de cantidad. Los datos antiguos sin fecha o con igual fecha conservan la cantidad mayor. Las marcas de retirada impiden recuperar copias anteriores de artículos eliminados.
 - Historial → **Analizar hábitos** describe los menús anteriores a hoy, agrupados de lunes a domingo, por plato, perfil y comida/cena. Distingue semanas completas y parciales, compara intervalos observados y configuración, y permite exportar un JSON con las fuentes. Describe planificación; no confirma consumo ni modifica automáticamente los platos.
@@ -45,4 +46,4 @@ Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Tamb
 - [Mapa funcional y técnico](docs/CONTEXTO.md).
 - [Revisión del audio del 13/11/2026 y validaciones pendientes](docs/revision-2026-11-13.md).
 
-La rama de revisión requiere validación del usuario antes de integrarse en `main`. El histórico real y el ajuste de preferencias del catálogo siguen pendientes de analizar con los datos de Google Drive.
+La rama de revisión requiere validación del usuario antes de integrarse en `main`. El generador calcula las preferencias al generar desde el histórico de Drive autorizado en la propia app. Su ajuste a la familia requiere validación con los datos reales; no se han cambiado automáticamente las frecuencias mínimas de los platos.

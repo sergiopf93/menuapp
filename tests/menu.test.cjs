@@ -13,6 +13,7 @@ function setup({ menus = [], platos = [], config = {} } = {}) {
   const reads = [];
   const context = {
     App: { getState: () => state },
+    Sync: { normalize: value => (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim() },
     Drive: {
       listMenuFiles: async () => menus.map((_, index) => ({ id: String(index) })),
       readMenuJson: async id => { reads.push(id); return copy(menus[Number(id)]); },
