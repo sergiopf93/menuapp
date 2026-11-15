@@ -221,7 +221,7 @@ const Menu = (() => {
 
     // Alturas fijas para garantizar alineación
     const ALT_HEADER = 56;   // px cabecera día
-    const ALT_FILA   = 52;   // px cada fila de plato
+    const ALT_FILA   = 80;   // px cada fila de plato
     const ALT_LABEL  = 28;   // px separador "Comida" / "Cena"
     const totalAltura = ALT_HEADER + 2*(ALT_LABEL + (tieneBebe?2:1)*ALT_FILA);
 
@@ -278,7 +278,7 @@ const Menu = (() => {
             : (bloque?.activo===false||bloque?._mayActivo===false||!bloque?'—':'–');
           const esEsp=!bloque?.activo||bloque._mayActivo===false;
           html+=`<div class="menu-cal-celda ${esEsp?'menu-cal-celda--esp':''}"
-                      style="height:${ALT_FILA}px">${UI.escapeHtml(plMay)}</div>`;
+                      style="height:${ALT_FILA}px" title="${UI.escapeHtml(plMay)}">${UI.escapeHtml(plMay)}</div>`;
           // Bebé
           if(tieneBebe){
             const bebeInactivo=!bloque?.activo||bloque._bebeActivo===false||bloque.platosBebe===null;
@@ -286,7 +286,7 @@ const Menu = (() => {
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ')
               : (bebeInactivo?'—':'–');
             html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${bebeInactivo?'menu-cal-celda--esp':''}"
-                        style="height:${ALT_FILA}px">${UI.escapeHtml(plBebe)}</div>`;
+                        style="height:${ALT_FILA}px" title="${UI.escapeHtml(plBebe)}">${UI.escapeHtml(plBebe)}</div>`;
           }
         });
 
@@ -303,7 +303,7 @@ const Menu = (() => {
   function _buildCalendarioEditable(dias, tieneBebe) {
     const hoy=Dates.today();
     const semanas=_agruparPorSemana(dias);
-    const ALT_HEADER=56, ALT_FILA=52, ALT_LABEL=28;
+    const ALT_HEADER=56, ALT_FILA=80, ALT_LABEL=28;
     const totalAltura=ALT_HEADER+2*(ALT_LABEL+(tieneBebe?2:1)*ALT_FILA);
 
     let html=`<div class="menu-cal">`;

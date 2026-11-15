@@ -64,6 +64,9 @@
   background:var(--color-surface);
 }
 
+/* Las filas no se encogen: etiquetas y días mantienen exactamente la misma altura. */
+.menu-cal-labels > *, .menu-cal-col > * { flex-shrink:0; }
+
 /* Columna de etiquetas fija */
 .menu-cal-labels {
   flex-shrink:0;
@@ -95,6 +98,8 @@
 .menu-cal-scroll {
   display:flex;
   overflow-x:auto;
+  overflow-y:hidden;
+  min-width:0;
   -webkit-overflow-scrolling:touch;
   scrollbar-width:thin;
   scrollbar-color:var(--color-border) transparent;
@@ -139,6 +144,7 @@
 /* Celda de plato */
 .menu-cal-celda {
   display:block;
+  overflow:clip;
   padding:var(--space-2) var(--space-2);
   font-size:10px;
   line-height:1.35;

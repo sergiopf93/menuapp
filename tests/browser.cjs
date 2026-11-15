@@ -289,6 +289,65 @@ let server;
   await page.screenshot({ path: path.join(output, 'historial-mobile.png'), fullPage: true });
   await page.locator('.modal-close').click();
   console.log('PASS análisis historial con datos de prueba');
+  // Alturas fijas, alineación y scroll vertical de la página con textos largos.
+  await page.evaluate(() => {
+    const largo = 'Lubina al horno con patatas y cebolla, verduras asadas y ensalada de tomate con aceite de oliva '.repeat(4);
+    for (const menu of window.testMenus) {
+      menu.dias[0].comida.platosMayores = [{ id: 'largo', nombre: largo }];
+      menu.dias[6].cena = { activo: true, platosMayores: [{ id: 'largo', nombre: largo }] };
+    }
+  });
+  for (const viewport of [{ width: 390, height: 560 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    for (const bebe of [true, false]) {
+      await page.evaluate(bebe => {
+        App.getState().config.personas = bebe ? [{ tipo: 'mayor' }, { tipo: 'bebe' }] : [{ tipo: 'mayor' }];
+      }, bebe);
+      for (const vista of ['menu', 'dashboard', 'edicion']) {
+        await page.evaluate(vista => App.navigate(vista === 'edicion' ? 'menu' : vista), vista);
+        if (vista === 'edicion') await page.locator('#menu-btn-editar').click();
+        const selector = vista === 'dashboard' ? '#dashboard-menu-preview .menu-cal' : '#view-menu .menu-cal';
+        const cal = page.locator(selector);
+        await cal.waitFor();
+        const medidas = await cal.evaluate(el => {
+          const scroll = el.querySelector('.menu-cal-scroll');
+          const labels = el.querySelector('.menu-cal-labels');
+          const rows = [...labels.children].map(row => row.getBoundingClientRect());
+          const cols = [...el.querySelectorAll('.menu-cal-col')];
+          const alineadas = cols.every(col => [...col.children].every((cell, i) => {
+            const rect = cell.getBoundingClientRect();
+            return Math.abs(rect.top - rows[i].top) < 1 && Math.abs(rect.height - rows[i].height) < 1;
+          }));
+          scroll.scrollTop = 100;
+          const vertical = scroll.scrollTop;
+          const labelLeft = labels.getBoundingClientRect().left;
+          scroll.scrollLeft = 100;
+          const horizontal = scroll.scrollLeft;
+          const fijas = labels.getBoundingClientRect().left === labelLeft;
+          scroll.scrollLeft = 0;
+          return { alineadas, vertical, horizontal, fijas,
+            sinOverflowVertical: scroll.scrollHeight === scroll.clientHeight,
+            alturas: [...el.querySelectorAll('.menu-cal-celda')].map(cell => cell.getBoundingClientRect().height) };
+        });
+        assert(medidas.alineadas && medidas.fijas && medidas.sinOverflowVertical, JSON.stringify({ vista, medidas }));
+        assert.equal(medidas.vertical, 0);
+        assert(medidas.horizontal > 0);
+        assert(medidas.alturas.every(h => h === 80));
+        await cal.evaluate(el => el.scrollIntoView({ block: 'start' }));
+        const box = await cal.boundingBox();
+        const before = await page.locator('#app-content').evaluate(el => el.scrollTop);
+        await page.mouse.move(box.x + box.width / 2, Math.max(70, Math.min(box.y + 100, viewport.height - 80)));
+        if (await page.locator('#app-content').evaluate(el => el.scrollHeight > el.clientHeight + 1)) {
+          await page.mouse.wheel(0, before > 0 ? -100 : 100);
+          await page.waitForFunction(before => document.querySelector('#app-content').scrollTop !== before, before, { timeout: 3000 });
+        }
+        assert.equal(await cal.locator('.menu-cal-scroll').evaluate(el => el.scrollTop), 0);
+        if (bebe) await page.screenshot({ path: path.join(output, `calendario-fijo-${vista}-${viewport.width}.png`), fullPage: true });
+      }
+    }
+    console.log(`PASS filas fijas y alineadas, scroll horizontal y gesto vertical en página: ${viewport.width}px, Inicio/Menú/edición, con y sin bebé`);
+  }
+  assert.deepEqual(errors, []);
   // Segunda visita real sin red: JS, CSS, iconos y caché local desde el Service Worker.
   const offlineContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const offlinePage = await offlineContext.newPage();
