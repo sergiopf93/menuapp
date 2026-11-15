@@ -134,7 +134,7 @@ const Historial = (() => {
     ];
 
     return `
-      <div style="overflow-x:auto">
+      <div class="menu-historial-scroll">
         <table class="menu-tabla" style="min-width:400px">
           <thead>
             <tr>

@@ -2,7 +2,7 @@
  * MenuApp — Módulo de Menú v3
  *
  * Fixes:
- * - Calendario con cabeceras alineadas (flex en lugar de table)
+ * - Calendario con cabeceras y filas alineadas
  * - Datepicker propio (lunes primero, formato español)
  * - Días especiales: lógica por perfil correcta
  * - Priorización: forzar uso solo si no ya consumido; caducidad solo dentro del horizonte
@@ -181,7 +181,8 @@ const Menu = (() => {
                    || todasCols[todasCols.length - 1];
     if (!targetCol) return;
 
-    const posicion = targetCol.getBoundingClientRect().left - scroll.getBoundingClientRect().left;
+    const anchoEtiquetas = scroll.querySelector('.menu-cal-labels')?.getBoundingClientRect().width || 0;
+    const posicion = targetCol.getBoundingClientRect().left - scroll.getBoundingClientRect().left - anchoEtiquetas;
     scroll.scrollLeft += posicion;
   }
 
@@ -211,7 +212,7 @@ const Menu = (() => {
     return Object.values(porFecha).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   }
 
-  // ── Calendario flex (alineación correcta) ────────────────────────
+  // ── Calendario con filas compartidas ────────────────────────
 
   function _buildCalendario(dias, tieneBebe) {
     const hoy=Dates.today();
@@ -219,13 +220,13 @@ const Menu = (() => {
     // Número de filas: 1 adultos comida + (bebe comida)? + 1 adultos cena + (bebe cena)?
     const filas = tieneBebe ? 4 : 2;
 
-    // Alturas fijas para garantizar alineación
+    // Alturas mínimas; las filas crecen juntas según sus platos.
     const ALT_HEADER = 56;   // px cabecera día
     const ALT_FILA   = 52;   // px cada fila de plato
     const ALT_LABEL  = 28;   // px separador "Comida" / "Cena"
     const totalAltura = ALT_HEADER + 2*(ALT_LABEL + (tieneBebe?2:1)*ALT_FILA);
 
-    let html=`<div class="menu-cal">`;
+    let html=`<div class="menu-cal"><div class="menu-cal-scroll" style="grid-template-rows:${ALT_HEADER}px ${ALT_LABEL}px repeat(${tieneBebe?2:1},minmax(${ALT_FILA}px,auto)) ${ALT_LABEL}px repeat(${tieneBebe?2:1},minmax(${ALT_FILA}px,auto))">`;
 
     // ── Columna etiquetas (posición sticky izquierda) ──
     html+=`<div class="menu-cal-labels" style="min-height:${totalAltura}px">
@@ -235,19 +236,18 @@ const Menu = (() => {
       html+=`<div class="menu-cal-bloque-label" style="height:${ALT_LABEL}px">
         <span class="menu-cal-momento-label">${momento==='Comida'?'🍽':'🌙'} ${momento}</span>
       </div>`;
-      html+=`<div style="height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2)">
+      html+=`<div style="min-height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2)">
         <span style="font-size:10px;color:var(--color-text-muted);font-weight:600">Adultos</span>
       </div>`;
       if(tieneBebe) {
-        html+=`<div style="height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2);background:rgba(59,130,246,.04)">
+        html+=`<div style="min-height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2);background:rgba(59,130,246,.04)">
           <span style="font-size:10px;color:var(--color-text-muted);font-weight:600">Bebé</span>
         </div>`;
       }
     });
     html+=`</div>`;
 
-    // ── Área scrollable ──
-    html+=`<div class="menu-cal-scroll">`;
+    // Las columnas comparten las filas del calendario para crecer con sus platos.
     semanas.forEach((semana,si)=>{
       semana.forEach(dia=>{
         const esHoy=dia.fecha===hoy;
@@ -278,7 +278,7 @@ const Menu = (() => {
             : (bloque?.activo===false||bloque?._mayActivo===false||!bloque?'—':'–');
           const esEsp=!bloque?.activo||bloque._mayActivo===false;
           html+=`<div class="menu-cal-celda ${esEsp?'menu-cal-celda--esp':''}"
-                      style="height:${ALT_FILA}px">${UI.escapeHtml(plMay)}</div>`;
+                      style="min-height:${ALT_FILA}px">${UI.escapeHtml(plMay)}</div>`;
           // Bebé
           if(tieneBebe){
             const bebeInactivo=!bloque?.activo||bloque._bebeActivo===false||bloque.platosBebe===null;
@@ -286,7 +286,7 @@ const Menu = (() => {
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ')
               : (bebeInactivo?'—':'–');
             html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${bebeInactivo?'menu-cal-celda--esp':''}"
-                        style="height:${ALT_FILA}px">${UI.escapeHtml(plBebe)}</div>`;
+                        style="min-height:${ALT_FILA}px">${UI.escapeHtml(plBebe)}</div>`;
           }
         });
 
@@ -306,7 +306,7 @@ const Menu = (() => {
     const ALT_HEADER=56, ALT_FILA=52, ALT_LABEL=28;
     const totalAltura=ALT_HEADER+2*(ALT_LABEL+(tieneBebe?2:1)*ALT_FILA);
 
-    let html=`<div class="menu-cal">`;
+    let html=`<div class="menu-cal"><div class="menu-cal-scroll" style="grid-template-rows:${ALT_HEADER}px ${ALT_LABEL}px repeat(${tieneBebe?2:1},minmax(${ALT_FILA}px,auto)) ${ALT_LABEL}px repeat(${tieneBebe?2:1},minmax(${ALT_FILA}px,auto))">`;
 
     // Etiquetas
     html+=`<div class="menu-cal-labels" style="min-height:${totalAltura}px">
@@ -315,14 +315,14 @@ const Menu = (() => {
       html+=`<div class="menu-cal-bloque-label" style="height:${ALT_LABEL}px">
         <span class="menu-cal-momento-label">${momento==='Comida'?'🍽':'🌙'} ${momento}</span>
       </div>
-      <div style="height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2)">
+      <div style="min-height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2)">
         <span style="font-size:10px;color:var(--color-text-muted);font-weight:600">Adultos</span>
       </div>`;
-      if(tieneBebe) html+=`<div style="height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2);background:rgba(59,130,246,.04)">
+      if(tieneBebe) html+=`<div style="min-height:${ALT_FILA}px;display:flex;align-items:center;padding:0 var(--space-2);background:rgba(59,130,246,.04)">
         <span style="font-size:10px;color:var(--color-text-muted);font-weight:600">Bebé</span>
       </div>`;
     });
-    html+=`</div><div class="menu-cal-scroll">`;
+    html+=`</div>`;
 
     semanas.forEach((semana,si)=>{
       semana.forEach(dia=>{
@@ -354,7 +354,7 @@ const Menu = (() => {
             ? bloque.platosMayores.map(p=>p.nombre).join(' + ') : '+';
           const etiquetaMayor=mayorCancelado?'Marcado fuera; pulsa para añadir una excepción':'Editar comida de adultos';
           html+=`<div class="menu-cal-celda menu-cal-celda--edit ${mayorCancelado?'menu-cal-celda--esp':''}"
-                      style="height:${ALT_FILA}px"
+                      style="min-height:${ALT_FILA}px"
                       data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="mayores"
                       aria-label="${UI.escapeHtml(etiquetaMayor)}" title="${UI.escapeHtml(etiquetaMayor)}">${mayorCancelado?'+ Añadir':UI.escapeHtml(plMay)}</div>`;
 
@@ -366,7 +366,7 @@ const Menu = (() => {
               ? 'Añadido manualmente al menú' : bebeCancelado
                 ? 'Marcado fuera; pulsa para añadir una excepción' : 'Editar comida del bebé';
             html+=`<div class="menu-cal-celda menu-cal-celda--bebe menu-cal-celda--edit ${bebeCancelado?'menu-cal-celda--esp':''}"
-                        style="height:${ALT_FILA}px"
+                        style="min-height:${ALT_FILA}px"
                         data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="bebe"
                         aria-label="${UI.escapeHtml(etiquetaBebe)}" title="${UI.escapeHtml(etiquetaBebe)}">${bebeCancelado&&!bloque?.edicionManual?.includes('bebe')?'+ Añadir':UI.escapeHtml(plBebe)}</div>`;
           }

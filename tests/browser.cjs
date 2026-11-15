@@ -10,6 +10,41 @@ fs.mkdirSync(output, { recursive: true });
 let browser;
 let server;
 
+async function comprobarScrollCalendario(page, selector, vista = '#app-content') {
+  const calendario = page.locator(selector);
+  const medidas = await calendario.evaluate(el => {
+    el.scrollTop = 100;
+    const vertical = el.scrollTop;
+    const altura = { contenido: el.scrollHeight, visible: el.clientHeight };
+    const labels = el.querySelector('.menu-cal-labels');
+    const columnas = [...el.querySelectorAll('.menu-cal-col')];
+    const filas = labels ? [...labels.children].map(fila => fila.getBoundingClientRect()) : [];
+    const alineadas = columnas.every(col => [...col.children].every((celda, i) => {
+      const rect = celda.getBoundingClientRect();
+      return Math.abs(rect.top - filas[i].top) < 1 && Math.abs(rect.height - filas[i].height) < 1;
+    }));
+    const sinRecortes = [...el.querySelectorAll('.menu-cal-celda')].every(celda => celda.scrollHeight <= celda.clientHeight + 1);
+    const etiquetaAntes = labels?.getBoundingClientRect().left;
+    el.scrollLeft = el.scrollWidth;
+    const horizontal = el.scrollLeft;
+    const etiquetasFijas = !labels || Math.abs(labels.getBoundingClientRect().left - etiquetaAntes) < 1;
+    el.scrollLeft = 0;
+    return { vertical, altura, alineadas, sinRecortes, horizontal, etiquetasFijas, anchoExtra: el.scrollWidth - el.clientWidth, overflowX: getComputedStyle(el).overflowX };
+  });
+  assert.equal(medidas.vertical, 0, `Scroll vertical interno en ${selector}`);
+  assert(medidas.altura.contenido <= medidas.altura.visible + 1, JSON.stringify(medidas));
+  assert(medidas.alineadas && medidas.sinRecortes, `Filas alineadas y texto completo: ${JSON.stringify(medidas)}`);
+  assert(medidas.overflowX === 'auto' && (medidas.anchoExtra <= 1 || medidas.horizontal > 0) && medidas.etiquetasFijas, `Horizontal y etiquetas: ${JSON.stringify(medidas)}`);
+  if (await page.locator(vista).evaluate(el => el.scrollHeight <= el.clientHeight + 1)) return;
+  await calendario.evaluate(el => el.scrollIntoView({ block: 'start' }));
+  const box = await calendario.boundingBox();
+  const antes = await page.locator(vista).evaluate(el => el.scrollTop);
+  await page.mouse.move(box.x + box.width / 2, Math.max(65, Math.min(box.y + 80, page.viewportSize().height - 80)));
+  await page.mouse.wheel(0, antes > 0 ? -120 : 120);
+  await page.waitForFunction(({ vista, antes }) => document.querySelector(vista).scrollTop !== antes, { vista, antes });
+  assert.equal(await calendario.evaluate(el => el.scrollTop), 0, 'El gesto vertical desplaza la vista general');
+}
+
 (async () => {
   server = http.createServer((req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -115,7 +150,7 @@ let server;
     const scroll = document.querySelector('#view-menu .menu-cal-scroll');
     const monday = Dates.startOfWeek(Dates.today());
     const target = scroll.querySelector(`[data-fecha="${monday}"]`);
-    return { scroll: scroll.scrollLeft, delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left };
+    return { scroll: scroll.scrollLeft, delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left - scroll.querySelector('.menu-cal-labels').getBoundingClientRect().width };
   });
   assert.equal(scrollInfo.scroll, 0);
   assert(Math.abs(scrollInfo.delta) < 2, JSON.stringify(scrollInfo));
@@ -243,7 +278,7 @@ let server;
     const target = scroll.querySelector(`[data-fecha="${monday}"]`);
     return {
       count: [...scroll.querySelectorAll('[data-fecha]')].filter(el => el.dataset.fecha >= monday).length,
-      delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left,
+      delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left - scroll.querySelector('.menu-cal-labels').getBoundingClientRect().width,
       dateLabel: Dates.format(monday, 'numshort'),
     };
   });
@@ -289,6 +324,46 @@ let server;
   await page.screenshot({ path: path.join(output, 'historial-mobile.png'), fullPage: true });
   await page.locator('.modal-close').click();
   console.log('PASS análisis historial con datos de prueba');
+  // Nombres largos y pantallas bajas: el calendario crece sin scroll vertical propio.
+  await page.evaluate(() => {
+    const largo = 'Lubina al horno con patatas y cebolla, acompañada de verduras asadas y ensalada de tomate con aceite de oliva';
+    for (const menu of window.testMenus) {
+      menu.dias[0].comida.platosMayores = [{ id: 'largo', nombre: largo }];
+      menu.dias[0].comida.platosBebe = [{ id: 'largo-bebe', nombre: largo }];
+      menu.dias[6].cena = { activo: true, platosMayores: [{ id: 'largo-cena', nombre: largo }] };
+    }
+  });
+  for (const viewport of [{ width: 390, height: 560 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => App.navigate('menu'));
+    await page.locator('#view-menu .menu-cal-scroll').waitFor();
+    await comprobarScrollCalendario(page, '#view-menu .menu-cal-scroll');
+    await page.screenshot({ path: path.join(output, `calendario-completo-${viewport.width}.png`), fullPage: true });
+    await page.evaluate(() => App.navigate('dashboard'));
+    await page.locator('#dashboard-menu-preview .menu-cal-scroll').waitFor();
+    await comprobarScrollCalendario(page, '#dashboard-menu-preview .menu-cal-scroll');
+    await page.evaluate(() => App.navigate('menu'));
+    await page.locator('#menu-btn-editar').click();
+    await comprobarScrollCalendario(page, '#view-menu .menu-cal-scroll');
+    await page.locator('#menu-btn-cancelar').click();
+    await page.locator('#menu-btn-historial').click();
+    await page.locator('.hist-menu-card').first().click();
+    await comprobarScrollCalendario(page, '.menu-historial-scroll', '.modal-overlay');
+    assert.equal(await page.locator('.modal').evaluate(el => el.scrollHeight > el.clientHeight), false);
+    await page.locator('.modal-close').click();
+    console.log(`PASS calendario completo, filas alineadas, scroll general vertical y horizontal propio en cuatro vistas a ${viewport.width}x${viewport.height}`);
+  }
+  await page.evaluate(() => {
+    App.getState().config.personas = [{ id: 'adulto', tipo: 'mayor' }];
+    App.navigate('menu');
+  });
+  await page.locator('#view-menu .menu-cal-scroll').waitFor();
+  await comprobarScrollCalendario(page, '#view-menu .menu-cal-scroll');
+  await page.locator('#menu-btn-editar').click();
+  await comprobarScrollCalendario(page, '#view-menu .menu-cal-scroll');
+  await page.locator('#menu-btn-cancelar').click();
+  console.log('PASS calendario sin filas de bebé conserva altura completa y alineación');
+  assert.deepEqual(errors, [], `Errores JS: ${errors.join('; ')}`);
   // Segunda visita real sin red: JS, CSS, iconos y caché local desde el Service Worker.
   const offlineContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const offlinePage = await offlineContext.newPage();
