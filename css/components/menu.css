@@ -58,20 +58,21 @@
   border:1px solid var(--color-border);
 }
 
-/* ─── Estructura del calendario ────────────────────────────── */
+/* ─── Estructura flex del calendario ────────────────────────────── */
 .menu-cal {
-  min-width:0;
+  display:flex;
   background:var(--color-surface);
 }
 
 /* Columna de etiquetas fija */
 .menu-cal-labels {
-  position:sticky;
-  left:0;
+  flex-shrink:0;
   width:72px;
   border-right:2px solid var(--color-border);
   background:var(--color-surface);
   z-index:2;
+  display:flex;
+  flex-direction:column;
 }
 
 .menu-cal-bloque-label {
@@ -90,23 +91,14 @@
   color:var(--color-primary);
 }
 
-/* Solo el calendario se desplaza horizontalmente; su altura incluye todas las filas. */
+/* Área scrollable */
 .menu-cal-scroll {
-  display:grid;
-  grid-auto-flow:column;
-  grid-auto-columns:max-content;
+  display:flex;
   overflow-x:auto;
-  overflow-y:hidden;
   -webkit-overflow-scrolling:touch;
   scrollbar-width:thin;
   scrollbar-color:var(--color-border) transparent;
-}
-
-.menu-cal-labels,
-.menu-cal-col {
-  display:grid;
-  grid-template-rows:subgrid;
-  grid-row:1 / -1;
+  flex:1;
 }
 
 /* Columna de un día */
@@ -114,6 +106,8 @@
   flex-shrink:0;
   width:90px;
   border-right:1px solid var(--color-border);
+  display:flex;
+  flex-direction:column;
 }
 .menu-cal-col--hoy   { background:var(--color-primary-light); }
 .menu-cal-col--finde { background:var(--color-surface-2); }
@@ -162,7 +156,7 @@
 .menu-cal-celda--edit:hover { background:var(--color-primary-light); color:var(--color-primary); }
 
 /* Separador de semana */
-.menu-cal-sep-semana { grid-row:1 / -1; width:4px; background:var(--color-border); }
+.menu-cal-sep-semana { flex-shrink:0; width:4px; background:var(--color-border); }
 
 /* ─── Popup de platos ────────────────────────────────────────────── */
 .popup-plato-list {
@@ -228,17 +222,3 @@
 }
 .menu-edicion-selector label { font-size: var(--font-size-sm); font-weight: 600; }
 .menu-edicion-selector select { width: 100%; min-width: 0; }
-
-.menu-historial-scroll { overflow-x:auto; overflow-y:hidden; }
-
-/* En el detalle histórico se desplaza la vista completa, no la ventana del calendario. */
-.modal-overlay:has(.menu-tabla:not(.hist-analisis-tabla)) {
-  overflow-y:auto;
-  align-items:flex-start;
-}
-.modal:has(.menu-tabla:not(.hist-analisis-tabla)) {
-  max-height:none;
-  overflow:visible;
-  margin-block:auto;
-  flex-shrink:0;
-}

@@ -7,7 +7,6 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 - Inicio abre con los datos locales. Una sesión de Google vigente sincroniza en segundo plano; si caduca, **Conectar con Google** permite renovar la autorización sin bloquear el uso local.
 - **Más** abre Artículos, Historial y Configuración.
 - **Menú** muestra solo la semana actual (desde el lunes) y las futuras disponibles. El selector permite editar cualquiera de los menús visibles, incluidas sus semanas si abarcan más de una.
-- Los calendarios de Inicio, Menú, edición e Historial muestran su altura completa y adaptan las filas a los nombres de los platos. Solo tienen desplazamiento horizontal; para subir o bajar se usa el desplazamiento general de la vista.
 - **Menú → Historial** abre todos los menús guardados: primero el actual, después los anteriores de más reciente a más antiguo y, al final, los futuros. También sigue accesible desde **Más**. Al abrir un menú, **Editar menú** permite modificar cualquier semana pasada.
 - **Guardar cambios** actualiza el archivo original de Drive y vuelve a la vista de origen. Cancelar no guarda; si falla el envío, conserva la edición para reintentar. Editar un menú pasado o futuro no sustituye la semana activa ni elimina sus avisos.
 - Las búsquedas de nombres ignoran tildes y mayúsculas.
