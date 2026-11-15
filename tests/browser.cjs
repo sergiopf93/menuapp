@@ -131,9 +131,20 @@ let server;
   for (const cell of babyCells) {
     const weekday = new Date(cell.date + 'T12:00:00').getDay();
     const skipped = cell.moment === 'comida' && weekday > 0 && weekday < 6;
-    assert.equal(cell.editable, !skipped, JSON.stringify(cell));
-    if (skipped) assert.equal(cell.text, '—');
+    assert.equal(cell.editable, true, JSON.stringify(cell));
+    if (skipped) assert.equal(cell.text, '+ Añadir');
   }
+  const exceptionCell = babyCells.find(cell => cell.moment === 'comida' &&
+    new Date(cell.date + 'T12:00:00').getDay() > 0 && new Date(cell.date + 'T12:00:00').getDay() < 6);
+  assert(exceptionCell, 'el borrador ofrece una comida laborable de bebé para editar');
+  const lunchBaby = page.locator(`#view-menu .menu-cal-celda[data-fecha="${exceptionCell.date}"][data-momento="comida"][data-perfil="bebe"]`);
+  assert((await lunchBaby.getAttribute('title')).includes('pulsa para añadir'));
+  await lunchBaby.click();
+  await page.waitForTimeout(120);
+  await page.locator('#popup-plato-search').fill('judias');
+  await page.locator('.popup-plato-item').first().click();
+  assert.notEqual(await lunchBaby.innerText(), '+ Añadir');
+  assert.equal(await lunchBaby.getAttribute('title'), 'Añadido manualmente al menú');
   await page.locator('#menu-btn-cancelar').click();
   await page.locator('#menu-btn-nuevo').click();
   await page.locator('#menu-paso1-next').click();

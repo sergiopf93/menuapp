@@ -320,25 +320,29 @@ const Menu = (() => {
           const bloque=dia[momento];
           html+=`<div class="menu-cal-bloque-sep" style="height:${ALT_LABEL}px"></div>`;
           const esCancelado = bloque?.activo===false && !!dia.tipoEspecial;
-          const mayorCancelado = esCancelado || bloque?._mayActivo===false;
+          const mayorCancelado = esCancelado || bloque?._mayActivo===false || !bloque?.activo;
           const bebeCancelado = esCancelado || bloque?._bebeActivo===false;
 
           // Adultos editable
-          const plMay=bloque?.platosMayores?.length
+          const plMay=!mayorCancelado&&bloque?.platosMayores?.length
             ? bloque.platosMayores.map(p=>p.nombre).join(' + ') : '+';
-          html+=`<div class="menu-cal-celda ${mayorCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+          const etiquetaMayor=mayorCancelado?'Marcado fuera; pulsa para añadir una excepción':'Editar comida de adultos';
+          html+=`<div class="menu-cal-celda menu-cal-celda--edit ${mayorCancelado?'menu-cal-celda--esp':''}"
                       style="height:${ALT_FILA}px"
                       data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="mayores"
-                      >${mayorCancelado?'—':UI.escapeHtml(plMay)}</div>`;
+                      aria-label="${UI.escapeHtml(etiquetaMayor)}" title="${UI.escapeHtml(etiquetaMayor)}">${mayorCancelado?'+ Añadir':UI.escapeHtml(plMay)}</div>`;
 
           // Bebé editable
           if(tieneBebe){
             const plBebe=bloque?.platosBebe?.length
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ') : '+';
-            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${bebeCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+            const etiquetaBebe=bloque?.edicionManual?.includes('bebe')
+              ? 'Añadido manualmente al menú' : bebeCancelado
+                ? 'Marcado fuera; pulsa para añadir una excepción' : 'Editar comida del bebé';
+            html+=`<div class="menu-cal-celda menu-cal-celda--bebe menu-cal-celda--edit ${bebeCancelado?'menu-cal-celda--esp':''}"
                         style="height:${ALT_FILA}px"
                         data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="bebe"
-                        >${bebeCancelado?'—':UI.escapeHtml(plBebe)}</div>`;
+                        aria-label="${UI.escapeHtml(etiquetaBebe)}" title="${UI.escapeHtml(etiquetaBebe)}">${bebeCancelado&&!bloque?.edicionManual?.includes('bebe')?'+ Añadir':UI.escapeHtml(plBebe)}</div>`;
           }
         });
         html+=`</div>`;
@@ -1670,10 +1674,24 @@ const Menu = (() => {
   }
 
   function _actualizarCeldaCalendario(fecha, momento, perfil, platos) {
+    const dia=_menuEnCurso.dias.find(item=>item.fecha===fecha);
+    const bloque=dia?.[momento];
+    if(bloque){
+      const campoActivo=perfil==='bebe'?'_bebeActivo':'_mayActivo';
+      bloque.activo=true;
+      bloque[campoActivo]=true;
+      bloque.edicionManual=[...new Set([...(bloque.edicionManual||[]),perfil])];
+    }
     const celda = document.querySelector(
-      `.menu-cal-celda--edit[data-fecha="${fecha}"][data-momento="${momento}"][data-perfil="${perfil}"]`
+      `.menu-cal-celda[data-fecha="${fecha}"][data-momento="${momento}"][data-perfil="${perfil}"]`
     );
-    if(celda) celda.textContent = platos.map(p=>p.nombre).join(' + ') || '+';
+    if(celda){
+      celda.textContent = platos.map(p=>p.nombre).join(' + ') || '+';
+      celda.title='Añadido manualmente al menú';
+      celda.setAttribute('aria-label','Añadido manualmente al menú');
+      celda.classList.remove('menu-cal-celda--esp');
+      celda.classList.add('menu-cal-celda--edit');
+    }
   }
 
   // _asignarPlato queda como alias simple para compatibilidad
