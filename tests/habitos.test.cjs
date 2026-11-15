@@ -45,8 +45,8 @@ function setup({ platos = [], menus = [], config = {}, inventario = [], today = 
       includeWeek: _incluirSemanaActual, combine: _combinarDiasDeMenus,
       secondAdult: _elegirSegundoMayores,
       firstBaby: _elegirPrimeroBebe, secondBaby: _elegirSegundoBebe,
-      babyLunch: _generarBloqueBebeComida,
-      generate: _generarMenu, setMenu: menu => { _menuEnCurso=menu; },
+      babyLunch: _generarBloqueBebeComida, babyDinner: _generarBloqueBebeConSobras,
+      start: _iniciarAsistente, generate: _generarMenu, setMenu: menu => { _menuEnCurso=menu; },
       getMenu: () => _menuEnCurso,
     };`);
   vm.createContext(context);
@@ -223,7 +223,7 @@ test('la semana actual aparece vacía al mostrar solo históricos y no se duplic
   assert.equal(engine.includeWeek(result, '2026-11-13').length, result.length);
 });
 
-test('planificar con mucha antelación conserva las seis semanas reales anteriores a hoy', async () => {
+test('planificar con mucha antelación conserva el historial real anterior a hoy', async () => {
   const platos = [dish('nuevo'), dish('habitual')];
   const { engine, random } = setup({ platos, menus: twoWeeks('habitual'), today: '2026-11-13' });
   random(0.4);
@@ -288,4 +288,263 @@ test('las referencias retiradas del catálogo cuentan como observación sin infl
     day('2026-11-02', block(['vigente'])), day('2026-11-09', block(['vigente'])),
   ])], platos, '2026-11-23');
   assert.ok(weight(engine, platos[0], model) < weight(engine, platos[0], allKnown));
+});
+
+
+test('hábitos usa por defecto los 28 días anteriores al corte sin ampliar hasta el lunes', () => {
+  const platos = [dish('antes'), dish('limite'), dish('ayer'), dish('hoy')];
+  const { engine } = setup({ platos, today: '2026-11-13' });
+  const history = [menu([
+    day('2026-10-15', block(['antes'])), day('2026-10-16', block(['limite'])),
+    day('2026-11-12', block(['ayer'])), day('2026-11-13', block(['hoy'])),
+  ])];
+  const model = engine.build(history, platos, '2027-01-04');
+  assert.equal(model.ventanaSemanas, 4);
+  assert.deepEqual([...model.perfiles.mayores.comida.platos.keys()], ['limite', 'ayer']);
+});
+
+test('la ventana configurable respeta ambos extremos exactos incluso en cambio de hora', () => {
+  const platos = [dish('antes'), dish('limite'), dish('ultimo'), dish('corte')];
+  const { engine } = setup({ platos, today: '2026-11-13' });
+  const shift = (date, days) => new Date(Date.parse(date + 'T12:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+  for (const weeks of [2, 4, 12]) {
+    for (const horizon of ['2026-11-04', '2027-01-04']) {
+      const cutoff = horizon < '2026-11-13' ? horizon : '2026-11-13';
+      const model = engine.build([menu([
+        day(shift(cutoff, -weeks * 7 - 1), block(['antes'])),
+        day(shift(cutoff, -weeks * 7), block(['limite'])),
+        day(shift(cutoff, -1), block(['ultimo'])),
+        day(cutoff, block(['corte'])),
+      ])], platos, horizon, weeks);
+      assert.equal(model.fechaCorte, cutoff);
+      assert.equal(model.ventanaSemanas, weeks);
+      assert.deepEqual([...model.perfiles.mayores.comida.platos.keys()], ['limite', 'ultimo']);
+    }
+  }
+});
+
+test('generación lee las semanas guardadas en configuración y conserva ese valor en el borrador', async () => {
+  const platos = [dish('habitual')];
+  for (const weeks of [undefined, 2, 12]) {
+    const { engine } = setup({ platos, today: '2026-11-13',
+      config: { configuracionMenus: { semanasHistorialHabitos: weeks } },
+      menus: [menu([day('2026-09-21', block(['habitual'])), day('2026-09-28', block(['habitual']))])],
+    });
+    engine.setMenu({ fechaInicio: '2026-11-16', numSemanas: 1, dias: [] });
+    await engine.generate();
+    const generated = engine.getMenu();
+    assert.equal(generated.adaptacionHabitos.ventanaSemanas, weeks ?? 4);
+    assert.equal(generated.adaptacionHabitos.semanasObservadas.mayores.comida, weeks === 12 ? 2 : 0);
+  }
+});
+
+test('cada nuevo asistente inicia la opción de cenas laborables del bebé desactivada', () => {
+  const { engine } = setup();
+  engine.setMenu({ bebeSoloCenasLaborables: true });
+  engine.start();
+  assert.equal(engine.getMenu().bebeSoloCenasLaborables, false);
+});
+
+test('la opción manual del bebé elimina solo sus comidas L-V en todas las semanas', async () => {
+  const platos = Array.from({ length: 35 }, (_, i) => dish(`compartido-${i}`, { tipoMenu: ['todos'], permiteRepeticion: true }));
+  for (const enabled of [undefined, false, true]) {
+    const { engine } = setup({ platos, config: { personas: [{ tipo: 'bebe' }] } });
+    engine.setMenu({ fechaInicio: '2026-11-11', numSemanas: 2, dias: [], bebeSoloCenasLaborables: enabled });
+    await engine.generate();
+    for (const current of engine.getMenu().dias) {
+      const weekday = new Date(current.fecha + 'T12:00:00').getDay();
+      const skipLunch = enabled === true && weekday >= 1 && weekday <= 5;
+      assert.equal(current.comida._bebeActivo, !skipLunch, current.fecha);
+      assert.equal(current.comida.platosBebe.length > 0, !skipLunch, current.fecha);
+      assert.ok(current.comida._mayActivo && current.comida.platosMayores.length > 0, current.fecha);
+      assert.ok(current.cena._bebeActivo && current.cena.platosBebe.length > 0, current.fecha);
+      assert.ok(current.cena._mayActivo && current.cena.platosMayores.length > 0, current.fecha);
+    }
+  }
+});
+
+test('cenas laborables del bebé conserva las restricciones individuales de días especiales', async () => {
+  const platos = Array.from({ length: 20 }, (_, i) => dish(`compartido-${i}`, { tipoMenu: ['todos'], permiteRepeticion: true }));
+  const config = { personas: [{ tipo: 'bebe' }], tiposDiaEspecial: [
+    { id: 'adultos-fuera', afectaComida: true, afectaCena: true, afectaA: 'mayores' },
+    { id: 'bebe-fuera', afectaComida: true, afectaCena: true, afectaA: 'bebe' },
+    { id: 'todos-fuera', afectaComida: true, afectaCena: true, afectaA: 'todos' },
+  ] };
+  const { engine } = setup({ platos, config });
+  engine.setMenu({ fechaInicio: '2026-11-09', numSemanas: 1, bebeSoloCenasLaborables: true, dias: [
+    { fecha: '2026-11-09', tipoEspecial: 'adultos-fuera' },
+    { fecha: '2026-11-10', tipoEspecial: 'bebe-fuera' },
+    { fecha: '2026-11-11', tipoEspecial: 'todos-fuera' },
+    { fecha: '2026-11-14', tipoEspecial: 'bebe-fuera' },
+  ] });
+  await engine.generate();
+  const [monday, tuesday, wednesday, , , saturday, sunday] = engine.getMenu().dias;
+  assert.equal(monday.comida.activo, false);
+  assert.equal(monday.cena._mayActivo, false);
+  assert.ok(monday.cena._bebeActivo && monday.cena.platosBebe.length > 0);
+  for (const current of [tuesday, saturday]) {
+    for (const moment of ['comida', 'cena']) {
+      assert.equal(current[moment]._bebeActivo, false);
+      assert.equal(current[moment].platosBebe.length, 0);
+      assert.ok(current[moment]._mayActivo && current[moment].platosMayores.length > 0);
+    }
+  }
+  assert.equal(wednesday.comida.activo, false);
+  assert.equal(wednesday.cena.activo, false);
+  assert.ok(sunday.comida._bebeActivo && sunday.comida.platosBebe.length > 0);
+});
+
+
+test('la cena propia del bebé excluye platos incompatibles y respeta límites de repetición y facilidad', () => {
+  const adult = dish('solo-adultos');
+  const own = dish('propio', { tipoMenu: ['bebe'], permiteRepeticion: false, preparacionFacil: true });
+  const { engine } = setup({ platos: [adult, own] });
+  const used = [];
+  const dinner = (catalog, recent = {}, easy = false) => engine.babyDinner(
+    [ref(adult.id)], catalog, used, recent, new Set(), {}, {}, easy, 'cena', [], [], 0,
+  );
+  assert.equal(dinner([adult]).length, 0, 'Adultos incompatible no se copia al bebé');
+  assert.equal(dinner([own], { propio: 0 }).length, 0, 'Respeta intervalo de repetición');
+  assert.equal(dinner([{ ...own, preparacionFacil: false }], {}, true).length, 0, 'Respeta día fácil');
+  assert.equal(dinner([adult, own], {}, true)[0].id, own.id);
+  assert.ok(used.includes(own.id));
+  assert.equal(dinner([adult, own]).length, 0, 'No repite un plato propio con repetición desactivada');
+});
+
+test('afinidad laborable y fin de semana favorece la rutina sin excluir otros días', () => {
+  const platos = [dish('laborable'), dish('finde')];
+  const { engine, random } = setup({ platos });
+  const model = engine.build([menu([
+    day('2026-11-02', block(['laborable'])), day('2026-11-09', block(['laborable'])),
+    day('2026-11-07', block(['finde'])), day('2026-11-14', block(['finde'])),
+  ])], platos, '2026-11-23');
+  const tuesday = { fecha: '2026-11-24' };
+  const sunday = { fecha: '2026-11-29' };
+  assert.ok(weight(engine, platos[0], model, tuesday) > weight(engine, platos[1], model, tuesday));
+  assert.ok(weight(engine, platos[1], model, sunday) > weight(engine, platos[0], model, sunday));
+  for (const context of [tuesday, sunday]) {
+    for (const plato of platos) {
+      assert.ok(weight(engine, plato, model, context) >= 1);
+      assert.ok(weight(engine, plato, model, context) <= 6);
+    }
+    random(0);
+    assert.equal(engine.choose(platos, [], [], { modelo: model, perfil: 'mayores', momento: 'comida', ...context }).id, 'laborable');
+    random(0.999999);
+    assert.equal(engine.choose(platos, [], [], { modelo: model, perfil: 'mayores', momento: 'comida', ...context }).id, 'finde');
+  }
+});
+
+test('facilidad aprende por tipo de jornada y generaliza a platos nuevos solo con dos semanas', () => {
+  const platos = [dish('rapido-habitual', { preparacionFacil: true }), dish('lento-habitual', { preparacionFacil: false }),
+    dish('rapido-nuevo', { preparacionFacil: true }), dish('lento-nuevo', { preparacionFacil: false })];
+  const { engine } = setup({ platos });
+  const examples = [
+    day('2026-11-02', block(['rapido-habitual'])), day('2026-11-09', block(['rapido-habitual'])),
+    day('2026-11-07', block(['lento-habitual'])), day('2026-11-14', block(['lento-habitual'])),
+  ];
+  const model = engine.build([menu(examples)], platos, '2026-11-23');
+  assert.ok(weight(engine, platos[2], model, { fecha: '2026-11-24' }) > weight(engine, platos[3], model, { fecha: '2026-11-24' }));
+  assert.ok(weight(engine, platos[3], model, { fecha: '2026-11-29' }) > weight(engine, platos[2], model, { fecha: '2026-11-29' }));
+  const sparse = engine.build([menu([examples[0], examples[3]])], platos, '2026-11-23');
+  assert.equal(sparse.perfiles.mayores.comida.semanas.size, 2);
+  for (const fecha of ['2026-11-24', '2026-11-29']) {
+    assert.equal(weight(engine, platos[2], sparse, { fecha }), weight(engine, platos[3], sparse, { fecha }));
+  }
+});
+
+test('las jornadas cuentan exposiciones desconocidas y no multiplican dificultad por número de platos', () => {
+  const platos = [dish('facil-a', { preparacionFacil: true }), dish('facil-b', { preparacionFacil: true })];
+  const { engine } = setup({ platos });
+  const model = engine.build([menu([
+    day('2026-11-02', block(['facil-a', 'facil-b'])), day('2026-11-09', block(['retirado'])),
+    day('2026-11-10', block()),
+  ])], platos, '2026-11-23');
+  const group = model.perfiles.mayores.comida.jornadas.get('laborable');
+  assert.equal(group.total, 2);
+  assert.equal(group.semanas.size, 2);
+  assert.equal(group.preparaciones.get(true), 1);
+  assert.equal(group.platos.get('facil-a'), 1);
+});
+
+test('las parejas habituales ganan peso solo con dos observaciones y no cuentan referencias duplicadas', () => {
+  const platos = [dish('primero-a', { tipoPlato: 'primero' }), dish('primero-b', { tipoPlato: 'primero' }),
+    dish('segundo-a', { tipoPlato: 'segundo' }), dish('segundo-b', { tipoPlato: 'segundo' })];
+  const { engine } = setup({ platos });
+  const examples = [
+    day('2026-11-02', block(['primero-a', 'segundo-a', 'segundo-a'])),
+    day('2026-11-03', block(['primero-b', 'segundo-b'])),
+    day('2026-11-09', block(['primero-a', 'segundo-a'])),
+    day('2026-11-10', block(['primero-b', 'segundo-b'])),
+  ];
+  const model = engine.build([menu(examples)], platos, '2026-11-23');
+  assert.equal(model.perfiles.mayores.comida.parejas.get('primero-a').get('segundo-a'), 2);
+  assert.equal(model.perfiles.mayores.comida.parejas.get('segundo-a').get('primero-a'), 2);
+  assert.equal(model.perfiles.mayores.comida.parejas.get('segundo-a').has('segundo-a'), false);
+  const context = { fecha: '2026-11-25', acompananteId: 'primero-a' };
+  assert.ok(weight(engine, platos[2], model, context) > weight(engine, platos[3], model, context));
+  assert.equal(weight(engine, platos[2], model, { fecha: context.fecha }), weight(engine, platos[3], model, { fecha: context.fecha }));
+  const sparse = engine.build([menu([examples[0], examples[3]])], platos, '2026-11-23');
+  assert.equal(weight(engine, platos[2], sparse, context), weight(engine, platos[2], sparse, { fecha: context.fecha }));
+  assert.equal(weight(engine, platos[2], model, { ...context, perfil: 'bebe' }), 1);
+  assert.equal(weight(engine, platos[2], model, { ...context, momento: 'cena' }), 1);
+});
+
+test('la pareja aprendida no permite saltar repetición ni facilidad de los complementos', () => {
+  const platos = [dish('primero', { tipoPlato: 'primero', tipoMenu: ['todos'] }),
+    dish('preferido', { tipoPlato: 'segundo', tipoMenu: ['todos'], permiteRepeticion: false, preparacionFacil: false }),
+    dish('alternativa', { tipoPlato: 'segundo', tipoMenu: ['todos'], preparacionFacil: true })];
+  const { engine, random } = setup({ platos });
+  const model = engine.build([menu(['2026-11-02', '2026-11-09'].map(fecha =>
+    day(fecha, block(['primero', 'preferido'], ['primero', 'preferido']))))], platos, '2026-11-23');
+  const adultContext = { modelo: model, perfil: 'mayores', momento: 'comida', fecha: '2026-11-25', acompananteId: 'primero' };
+  random(0);
+  assert.equal(engine.secondAdult(platos, new Map(), {}, 2, 'comida', new Map(), adultContext).id, 'preferido');
+  assert.equal(engine.secondAdult(platos, new Map([['preferido', [0]]]), {}, 2, 'comida', new Map(), adultContext).id, 'alternativa');
+  assert.equal(engine.secondAdult(platos, new Map(), { preferido: 0 }, 2, 'comida', new Map(), adultContext).id, 'alternativa');
+  assert.equal(engine.secondAdult(platos, new Map(), {}, 2, 'comida', new Map(), adultContext, true).id, 'alternativa');
+  assert.equal(engine.secondBaby(platos, ['preferido'], {}, 'comida', { ...adultContext, perfil: 'bebe' }).id, 'alternativa');
+});
+
+test('el bebé reutiliza en cena ambos platos adultos compatibles preparados al mediodía', () => {
+  const platos = [dish('primero', { tipoPlato: 'primero', tipoMenu: ['todos'] }),
+    dish('segundo-alternativo', { tipoPlato: 'segundo', tipoMenu: ['todos'] }),
+    dish('segundo-cocinado', { tipoPlato: 'segundo', tipoMenu: ['todos'] }),
+    dish('cena-adulta', { tipoMenu: ['mayores'] })];
+  const { engine, random } = setup({ platos });
+  random(0);
+  const cooked = [ref('primero'), ref('segundo-cocinado')];
+  const selected = engine.babyDinner([ref('cena-adulta')], platos, [], {}, new Set(), {}, {}, false, 'cena', [], cooked, 0);
+  assert.deepEqual(copy(selected), cooked, 'No sustituye el segundo cocinado por otro aleatorio');
+  const alreadyEaten = engine.babyDinner([ref('cena-adulta')], platos,
+    ['segundo-cocinado', 'segundo-cocinado_dia0'], {}, new Set(), {}, {}, false, 'cena', [], cooked, 0);
+  assert.ok(alreadyEaten.every(p => p.id !== 'segundo-cocinado'), 'Excluye el plato que ya comió el bebé ese mediodía');
+});
+
+test('un catálogo amplio reserva al menos el 80 % al hábito manteniendo alternativas y prioridad de stock', () => {
+  const platos = [dish('habitual'), ...Array.from({ length: 20 }, (_, i) => dish(`nuevo-${i}`))];
+  platos[20].ingredientes = [{ nombre: 'Tomate' }];
+  const { engine, random } = setup({ platos });
+  const model = engine.build(twoWeeks('habitual'), platos, '2026-11-23');
+  const context = { modelo: model, perfil: 'mayores', momento: 'comida', fecha: '2026-11-25' };
+  const counts = new Map();
+  for (let i = 0; i < 1000; i++) {
+    random((i + 0.5) / 1000);
+    const selected = engine.choose(platos, [], [], context);
+    counts.set(selected.id, (counts.get(selected.id) || 0) + 1);
+    assert.equal(engine.choose(platos, ['tomate'], [], context).id, 'nuevo-19', 'Stock prioritario precede al hábito');
+  }
+  assert.ok(counts.get('habitual') >= 800, `Habitual elegido ${counts.get('habitual')}/1000`);
+  assert.ok(counts.get('habitual') < 1000);
+  assert.equal(counts.size, 21, 'Todos los platos nuevos conservan probabilidad positiva');
+});
+
+test('reservar peso al hábito no reintroduce platos descartados por elegibilidad', () => {
+  const platos = [dish('habitual'), dish('nuevo-a'), dish('nuevo-b')];
+  const { engine, random } = setup({ platos });
+  const model = engine.build(twoWeeks('habitual'), platos, '2026-11-23');
+  const context = { modelo: model, perfil: 'mayores', momento: 'comida', fecha: '2026-11-25' };
+  random(0);
+  assert.equal(engine.choose(platos.slice(1), [], [], context).id, 'nuevo-a');
+  random(0.999999);
+  assert.equal(engine.choose(platos.slice(1), [], [], context).id, 'nuevo-b');
 });

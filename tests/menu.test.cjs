@@ -203,3 +203,64 @@ test('las sobras del domingo siguen disponibles para el bebé al cambiar de sema
   assert.equal(days[1].comida.platosMayores[0].id, 'adulto-0');
   assert.equal(days[1].comida.platosBebe[0].id, 'compartido');
 });
+
+test('la cena admite primero, segundo o único compatibles como una sola preparación', async () => {
+  for (const tipoPlato of ['primero', 'segundo', 'unico']) {
+    const platos = Array.from({ length: 7 }, (_, i) => dish(`cena-${i}`, {
+      tipoPlato, tipoComida: ['cena'], permiteRepeticion: false,
+    }));
+    const { engine } = setup({ platos });
+    engine.setMenu({ fechaInicio: '2026-11-09', numSemanas: 1, dias: [] });
+    await engine.generate();
+    for (const [i, current] of engine.getMenu().dias.entries()) {
+      assert.equal(current.comida.platosMayores.length, 0, 'No cambia compatibilidad comida/cena');
+      assert.deepEqual(copy(current.cena.platosMayores), [ref(platos[i].id)], tipoPlato);
+    }
+  }
+});
+
+test('adultos respeta permiso semanal y días consecutivos también para segundos', () => {
+  const { engine } = setup();
+  for (const tipoPlato of ['unico', 'segundo']) {
+    for (const permiteRepeticion of [false, true]) {
+      const plato = dish('plato', { tipoPlato, permiteRepeticion });
+      const select = (used, day) => tipoPlato === 'segundo'
+        ? engine.second([plato], used, {}, day, 'comida', new Map())
+        : engine.filter({ platos: [plato], momento: 'comida', usadosSemana: used,
+          usadosReciente: {}, diaIndex: day, protPorDia: {}, cfgMenus: {}, contadorGrupos: {} })[0];
+      assert.equal(Boolean(select(new Map([['plato', [0]]]), 1)), false, 'Nunca en días consecutivos');
+      assert.equal(Boolean(select(new Map([['plato', [0]]]), 2)), permiteRepeticion, 'Segundo uso exige permiso');
+      assert.equal(Boolean(select(new Map([['plato', [0, 2]]]), 4)), false, 'No excede dos usos semanales');
+      assert.equal(Boolean(select(new Map(), 7)), true, 'Semana nueva permite volver a usar');
+    }
+  }
+});
+
+test('catálogo escaso no permite que el último recurso vulnere repetición ni facilidad', async () => {
+  for (const permiteRepeticion of [false, true]) {
+    const platos = [dish('limitado', { permiteRepeticion, preparacionFacil: true }),
+      dish('dificil', { preparacionFacil: false, permiteRepeticion: true })];
+    const config = { tiposDiaEspecial: [{ id: 'facil', esDiaFacil: true, facilMomentos: ['comida', 'cena'] }] };
+    const { engine } = setup({ platos, config });
+    engine.setMenu({ fechaInicio: '2026-11-09', numSemanas: 1, dias: Array.from({ length: 7 }, (_, i) => ({
+      fecha: `2026-11-${String(9 + i).padStart(2, '0')}`, tipoEspecial: 'facil',
+    })) });
+    await engine.generate();
+    const uses = engine.getMenu().dias.flatMap((current, i) => ['comida', 'cena'].flatMap(moment =>
+      current[moment].platosMayores.map(p => ({ id: p.id, day: i }))));
+    assert.equal(uses.length, permiteRepeticion ? 2 : 1);
+    assert.ok(uses.every(use => use.id === 'limitado'));
+    if (permiteRepeticion) assert.ok(uses[1].day - uses[0].day > 1);
+  }
+});
+
+test('un día fácil exige facilidad también en el segundo adulto que acompaña al primero', async () => {
+  const platos = [dish('primero-facil', { tipoPlato: 'primero', preparacionFacil: true, tipoComida: ['comida'] }),
+    dish('segundo-dificil', { tipoPlato: 'segundo', preparacionFacil: false, tipoComida: ['comida'] }),
+    dish('segundo-facil', { tipoPlato: 'segundo', preparacionFacil: true, tipoComida: ['comida'] })];
+  const config = { tiposDiaEspecial: [{ id: 'facil', esDiaFacil: true, facilMomentos: ['comida'] }] };
+  const { engine } = setup({ platos, config });
+  engine.setMenu({ fechaInicio: '2026-11-09', numSemanas: 1, dias: [{ fecha: '2026-11-09', tipoEspecial: 'facil' }] });
+  await engine.generate();
+  assert.deepEqual(copy(engine.getMenu().dias[0].comida.platosMayores).map(p => p.id), ['primero-facil', 'segundo-facil']);
+});

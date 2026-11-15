@@ -42,6 +42,8 @@ let server;
     state.catalogo = [{ id: 'judia', nombre: 'Judías verdes', categoria: 'Frutas y verduras', unidad: 'UN', paqueteMinimo: 1, activo: true }];
     state.inventario = [{ id: 'judia', nombre: 'Judías verdes', categoria: 'Frutas y verduras', cantidad: 2, unidad: 'UN', ubicacion: 'exterior' }];
     state.platos = [{ id: 'pl-judia', nombre: 'Judías verdes', tipoMenu: ['todos'], tipoComida: ['ambos'], tipoPlato: 'unico', etiquetas: [], activo: true, ingredientes: [] }];
+    state.config.personas = [{ id: 'adulto', tipo: 'mayor' }, { id: 'bebe', tipo: 'bebe' }];
+    state.config.configuracionMenus = { marcadorPrueba: 'conservar' };
     state.config.supermercados = [{ id: 'super', nombre: 'Super de prueba', secciones: ['Otros', 'Lácteos'] }];
     const monday = Dates.startOfWeek(Dates.today());
     const menus = [-28, -21, -14, -7, 0, 7].map((offset, i) => ({
@@ -72,6 +74,22 @@ let server;
     console.log(`PASS Más y Configuración ${viewport.width}px`);
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-seccion="generador"]').click();
+  assert.equal(await page.locator('#cfg-g-habitos').inputValue(), '4');
+  for (const invalid of ['', '1', '13', '2.5']) {
+    await page.locator('#cfg-g-habitos').fill(invalid);
+    await page.locator('#cfg-g-guardar').click();
+    assert.equal(await page.evaluate(() => App.getState().config.configuracionMenus.semanasHistorialHabitos), undefined);
+  }
+  await page.locator('#cfg-g-habitos').fill('8');
+  await page.locator('#cfg-g-guardar').click();
+  await page.waitForFunction(() => App.getState().config.configuracionMenus.semanasHistorialHabitos === 8);
+  assert.equal(await page.evaluate(() => App.getState().config.configuracionMenus.marcadorPrueba), 'conservar');
+  await page.locator('[data-seccion="familia"]').click();
+  await page.locator('[data-seccion="generador"]').click();
+  assert.equal(await page.locator('#cfg-g-habitos').inputValue(), '8');
+  await page.screenshot({ path: path.join(output, 'configuracion-generador-mobile.png'), fullPage: true });
+  console.log('PASS configuración de hábitos: cuatro semanas por defecto, validación 2–12 y conservación al guardar');
   for (const [view, input, card] of [['platos', '#pl-search', '#pl-list'], ['articulos', '#art-search', '#art-list'], ['inventario', '#inv-search', '#inv-list']]) {
     await page.evaluate(view => App.navigate(view), view);
     await page.locator(input).fill('JUDIAS');
@@ -94,11 +112,45 @@ let server;
   console.log('PASS menú abre lunes actual con histórico lateral y calendario Inicio presente');
   await page.locator('#menu-btn-nuevo').click();
   await page.locator('#menu-paso1-next').click();
+  assert.equal(await page.locator('#menu-bebe-solo-cenas').isChecked(), false);
+  await page.locator('#menu-bebe-solo-cenas').check();
+  await page.screenshot({ path: path.join(output, 'menu-bebe-cenas-mobile.png'), fullPage: true });
+  await page.locator('#menu-paso2-next').click();
+  await page.locator('#menu-btn-back').click();
+  assert.equal(await page.locator('#menu-bebe-solo-cenas').isChecked(), true);
   await page.locator('#menu-paso2-next').click();
   await page.locator('#menu-paso3-skip').click();
   await page.locator('#menu-btn-confirmar').waitFor();
   assert((await page.locator('.menu-paso-tabla').innerText()).includes('Se han priorizado vuestros hábitos'));
-  console.log('PASS asistente genera borrador adaptado al histórico disponible');
+  assert((await page.locator('.menu-paso-tabla').innerText()).includes('8 semanas'));
+  const babyCells = await page.locator('#view-menu [data-perfil="bebe"]').evaluateAll(cells => cells.map(cell => ({
+    date: cell.dataset.fecha, moment: cell.dataset.momento, text: cell.textContent,
+    editable: cell.classList.contains('menu-cal-celda--edit'),
+  })));
+  assert.equal(babyCells.length, 14);
+  for (const cell of babyCells) {
+    const weekday = new Date(cell.date + 'T12:00:00').getDay();
+    const skipped = cell.moment === 'comida' && weekday > 0 && weekday < 6;
+    assert.equal(cell.editable, true, JSON.stringify(cell));
+    if (skipped) assert.equal(cell.text, '+ Añadir');
+  }
+  const exceptionCell = babyCells.find(cell => cell.moment === 'comida' &&
+    new Date(cell.date + 'T12:00:00').getDay() > 0 && new Date(cell.date + 'T12:00:00').getDay() < 6);
+  assert(exceptionCell, 'el borrador ofrece una comida laborable de bebé para editar');
+  const lunchBaby = page.locator(`#view-menu .menu-cal-celda[data-fecha="${exceptionCell.date}"][data-momento="comida"][data-perfil="bebe"]`);
+  assert((await lunchBaby.getAttribute('title')).includes('pulsa para añadir'));
+  await lunchBaby.click();
+  await page.waitForTimeout(120);
+  await page.locator('#popup-plato-search').fill('judias');
+  await page.locator('.popup-plato-item').first().click();
+  assert.notEqual(await lunchBaby.innerText(), '+ Añadir');
+  assert.equal(await lunchBaby.getAttribute('title'), 'Añadido manualmente al menú');
+  await page.locator('#menu-btn-cancelar').click();
+  await page.locator('#menu-btn-nuevo').click();
+  await page.locator('#menu-paso1-next').click();
+  assert.equal(await page.locator('#menu-bebe-solo-cenas').isChecked(), false);
+  await page.locator('#menu-btn-cancelar').click();
+  console.log('PASS asistente usa ventana configurada y opción bebé manual persistente dentro del borrador');
   await page.evaluate(() => {
     window.originalMenuList = Drive.listMenuFiles;
     Drive.listMenuFiles = async () => (await window.originalMenuList()).filter(file => !['menu-4', 'menu-5'].includes(file.id));

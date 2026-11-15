@@ -426,6 +426,13 @@ const Configuracion = (() => {
       <div class="cfg-section">
         <h2 class="cfg-section-title">Parámetros del generador</h2>
         <div class="form-group" style="margin-top:var(--space-4)">
+          <label class="form-label" for="cfg-g-habitos">Semanas de histórico para aprender hábitos</label>
+          <input class="form-control" id="cfg-g-habitos" type="number" min="2" max="12" step="1" required
+                 value="${Number.isInteger(cfg.semanasHistorialHabitos) && cfg.semanasHistorialHabitos>=2 && cfg.semanasHistorialHabitos<=12 ? cfg.semanasHistorialHabitos : 4}"
+                 aria-describedby="cfg-g-habitos-ayuda"/>
+          <p class="form-hint" id="cfg-g-habitos-ayuda">Por defecto, 4 semanas (28 días). Puedes elegir de 2 a 12. El generador aprende de los menús pasados por persona, comida o cena y día de la semana.</p>
+        </div>
+        <div class="form-group" style="margin-top:var(--space-4)">
           <label class="form-label" for="cfg-g-freq">Semanas mínimas entre repeticiones (por defecto)</label>
           <input class="form-control" id="cfg-g-freq" type="number" min="1" max="8"
                  value="${cfg.frecuenciaMinSemanasPorDefecto||2}"/>
@@ -451,10 +458,19 @@ const Configuracion = (() => {
 
   function _bindGeneradorEvents() {
     document.getElementById('cfg-g-guardar')?.addEventListener('click',async()=>{
+      const campoHabitos=document.getElementById('cfg-g-habitos');
+      const semanas=Number(campoHabitos?.value);
+      if(!Number.isInteger(semanas) || semanas<2 || semanas>12){
+        UI.showToast('Elige entre 2 y 12 semanas completas de histórico','error');
+        campoHabitos?.focus();
+        return;
+      }
       const freq=parseInt(document.getElementById('cfg-g-freq')?.value)||2;
       const prot=document.getElementById('cfg-g-proteinas')?.checked!==false;
       const cc=document.getElementById('cfg-g-comidacena')?.checked!==false;
       await _saveConfig({configuracionMenus:{
+        ...(App.getState().config?.configuracionMenus||{}),
+        semanasHistorialHabitos:semanas,
         frecuenciaMinSemanasPorDefecto:freq,
         equilibrioProteinas:prot,
         equilibrioComidaCena:cc,

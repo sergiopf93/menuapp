@@ -608,6 +608,7 @@ const App = (() => {
         { id: 'bebe-1',   nombre: 'Bebé',     tipo: 'bebe'   },
       ],
       configuracionMenus: {
+        semanasHistorialHabitos: 4,
         frecuenciaMinSemanasPorDefecto: 2,
         equilibrioProteinas: true,
         equilibrioComidaCena: true,
