@@ -11,28 +11,34 @@ const copy = value => JSON.parse(JSON.stringify(value));
 function setup({ menus = [], platos = [], config = {} } = {}) {
   const state = { platos, inventario: [], config };
   const reads = [];
+  const writes = [];
+  const navigations = [];
+  const toasts = [];
   const context = {
-    App: { getState: () => state },
+    App: { getState: () => state, setState: async (key, value) => { state[key] = value; }, navigate: view => navigations.push(view) },
+    UI: { activateView() {}, showToast: (...args) => toasts.push(args) },
+    Notificaciones: { generarParaMenu: menu => menu.notifs || [] },
     Sync: { normalize: value => (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim() },
     Drive: {
       listMenuFiles: async () => menus.map((_, index) => ({ id: String(index) })),
       readMenuJson: async id => { reads.push(id); return copy(menus[Number(id)]); },
+      writeMenuJson: async (name, data, id) => writes.push({ name, data: copy(data), id }),
     },
     document: { getElementById: () => null },
     setTimeout: callback => { callback(); return 0; },
   };
   const source = menuSource
     .replace('_paso=5; _renderAsistente();', '_paso=5;')
-    .replace('return { render, getCalendarioHTML };', `return {
+    .replace('return { render, getCalendarioHTML, editar };', `return {
       history: _buildUsadosReciente, load: _cargarHistorialReciente,
       consumed: _calcularConsumidosAntesDel, filter: _filtrarMayores,
       second: _elegirSegundoMayores, register: _registrarMayor,
       generate: _generarMenu, setMenu: menu => { _menuEnCurso=menu; },
-      getMenu: () => _menuEnCurso,
+      getMenu: () => _menuEnCurso, edit: editar, save: _confirmarMenu,
     };`);
   vm.createContext(context);
   vm.runInContext(`${datesSource}\n${source}\nthis.engine=Menu; Math.random=()=>0;`, context);
-  return { ...context, reads, state };
+  return { ...context, reads, writes, navigations, toasts, state };
 }
 
 const ref = id => ({ id, nombre: id });
@@ -263,4 +269,85 @@ test('un día fácil exige facilidad también en el segundo adulto que acompaña
   engine.setMenu({ fechaInicio: '2026-11-09', numSemanas: 1, dias: [{ fecha: '2026-11-09', tipoEspecial: 'facil' }] });
   await engine.generate();
   assert.deepEqual(copy(engine.getMenu().dias[0].comida.platosMayores).map(p => p.id), ['primero-facil', 'segundo-facil']);
+});
+
+
+test('editar un histórico conserva archivo, estado, menú activo y avisos ajenos', async () => {
+  const h = setup({ config: { notificaciones: { activadas: true, pendientes: [{ id: 'aviso-activo' }] } } });
+  const current = menu([day('2026-11-09', ['actual'])], { id: 'actual' });
+  h.state.menuActual = current;
+  const original = menu([day('2026-10-26', ['viejo'])], {
+    id: 'pasado', estado: 'historico', fechaInicio: '2026-10-26', fechaFin: '2026-11-01',
+    _fileId: 'archivo-original', _fileName: 'menu-antiguo.json',
+  });
+  h.engine.edit(original, 'historial');
+  h.engine.getMenu().dias[0].comida.platosMayores = [ref('nuevo')];
+  assert.equal(original.dias[0].comida.platosMayores[0].id, 'viejo', 'la edición es una copia');
+  await h.engine.save();
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].id, 'archivo-original');
+  assert.equal(h.writes[0].name, 'menu-antiguo.json');
+  assert.equal(h.writes[0].data.estado, 'historico');
+  assert.equal(h.writes[0].data.id, 'pasado');
+  assert.equal(h.writes[0].data.dias[0].comida.platosMayores[0].id, 'nuevo');
+  assert.equal('_fileId' in h.writes[0].data, false);
+  assert.equal('_fileName' in h.writes[0].data, false);
+  assert.strictEqual(h.state.menuActual, current);
+  assert.deepEqual(copy(h.state.config.notificaciones.pendientes), [{ id: 'aviso-activo' }]);
+  assert.deepEqual(h.navigations, ['historial']);
+});
+
+test('editar futuro de varias semanas conserva todos los días y reemplaza solo sus avisos', async () => {
+  const h = setup({ config: { notificaciones: { pendientes: [{ id: 'ajeno' }, { id: 'viejo' }] } } });
+  const original = menu(Array.from({ length: 14 }, (_, i) => day(`2026-12-${String(i + 1).padStart(2, '0')}`, ['igual'])), {
+    id: 'futuro', fechaInicio: '2026-12-01', fechaFin: '2026-12-14', notifs: [{ id: 'viejo' }],
+  });
+  h.engine.edit(original);
+  h.engine.getMenu().dias[13].comida.platosMayores = [ref('cambiado')];
+  h.engine.getMenu().notifs = [{ id: 'nuevo' }];
+  await h.engine.save();
+  assert.equal(h.writes[0].name, 'semana_2026-12-01.json');
+  assert.equal(h.writes[0].data.dias.length, 14);
+  assert.equal(h.writes[0].data.dias[0].comida.platosMayores[0].id, 'igual');
+  assert.equal(h.writes[0].data.dias[13].comida.platosMayores[0].id, 'cambiado');
+  assert.deepEqual(copy(h.state.config.notificaciones.pendientes), [{ id: 'ajeno' }, { id: 'nuevo' }]);
+  assert.equal(h.state.menuActual, undefined);
+  assert.deepEqual(h.navigations, ['menu']);
+});
+
+test('un fallo al guardar permite reintentar sin perder cambios ni anunciar éxito', async () => {
+  const h = setup();
+  const writer = h.Drive.writeMenuJson;
+  h.engine.edit(menu([day('2026-11-09', ['cambio'])], { id: 'actual' }));
+  h.Drive.writeMenuJson = async () => { throw new Error('sin conexión'); };
+  await h.engine.save();
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.navigations.length, 0);
+  assert.equal(h.toasts[0][1], 'error');
+  assert.match(h.toasts[0][0], /sin conexión/);
+  assert.equal(h.engine.getMenu().dias[0].comida.platosMayores[0].id, 'cambio');
+  h.Drive.writeMenuJson = writer;
+  await h.engine.save();
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.toasts.at(-1)[1], 'success');
+});
+
+test('guardar una edición activa actualiza el estado y evita escrituras concurrentes', async () => {
+  const h = setup();
+  const original = menu([day('2026-11-09', ['viejo'])], { id: 'actual' });
+  h.state.menuActual = original;
+  h.engine.edit(original);
+  h.engine.getMenu().dias[0].comida.platosMayores = [ref('nuevo')];
+  const writer = h.Drive.writeMenuJson;
+  let release;
+  h.Drive.writeMenuJson = async (...args) => {
+    await new Promise(resolve => { release = resolve; });
+    return writer(...args);
+  };
+  const first = h.engine.save();
+  await h.engine.save();
+  release();
+  await first;
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.state.menuActual.dias[0].comida.platosMayores[0].id, 'nuevo');
 });

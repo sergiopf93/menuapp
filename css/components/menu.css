@@ -214,3 +214,11 @@
   top: 4px;
   right: 4px;
 }
+
+.menu-edicion-selector {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.menu-edicion-selector label { font-size: var(--font-size-sm); font-weight: 600; }
+.menu-edicion-selector select { width: 100%; min-width: 0; }

@@ -6,7 +6,9 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 
 - Inicio abre con los datos locales. Una sesión de Google vigente sincroniza en segundo plano; si caduca, **Conectar con Google** permite renovar la autorización sin bloquear el uso local.
 - **Más** abre Artículos, Historial y Configuración.
-- Menú abre en la semana actual y conserva el desplazamiento lateral hacia otras semanas.
+- **Menú** muestra solo la semana actual (desde el lunes) y las futuras disponibles. El selector permite editar cualquiera de los menús visibles, incluidas sus semanas si abarcan más de una.
+- **Menú → Historial** abre todos los menús guardados: primero el actual, después los anteriores de más reciente a más antiguo y, al final, los futuros. También sigue accesible desde **Más**. Al abrir un menú, **Editar menú** permite modificar cualquier semana pasada.
+- **Guardar cambios** actualiza el archivo original de Drive y vuelve a la vista de origen. Cancelar no guarda; si falla el envío, conserva la edición para reintentar. Editar un menú pasado o futuro no sustituye la semana activa ni elimina sus avisos.
 - Las búsquedas de nombres ignoran tildes y mayúsculas.
 - **Configuración → Generador** permite elegir entre 2 y 12 semanas de histórico; por defecto usa 4 (28 días anteriores a hoy o al comienzo del menú, si es anterior). Aprende por adulto/bebé, comida/cena, día de la semana, laborable/fin de semana, facilidad y parejas de platos. Necesita dos semanas observadas; los días ausentes no se interpretan como rechazo. Da preferencia a la rutina y conserva espacio para novedades, con prioridad para el stock y el reaprovechamiento.
 - Las cenas adultas admiten una preparación catalogada como primero, segundo o único si es compatible con cena. El permiso de repetición también se respeta para adultos: una vez por semana sin permiso, hasta dos con permiso, evitando días consecutivos. Los segundos de un día fácil también deben ser fáciles.
@@ -41,7 +43,7 @@ PLAYWRIGHT_MODULE=/ruta/a/node_modules/playwright node tests/browser.cjs
 
 Si `playwright` está disponible en la resolución normal de Node, basta `node tests/browser.cjs`. Las capturas se guardan en la carpeta temporal del sistema, dentro de `menuapp-qa`; puede elegirse otra carpeta con `MENUAPP_QA_OUTPUT`. `MENUAPP_BROWSER_CHANNEL` permite cambiar el canal instalado de navegador.
 
-Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. También verifican una recarga offline real con Service Worker e IndexedDB. No autorizan ni escriben en el Drive personal.
+Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Verifican el filtrado de semanas, el orden del historial, la edición y guardado de menús pasados/futuros, la cancelación y el reintento de errores. También verifican una recarga offline real con Service Worker e IndexedDB. No autorizan ni escriben en el Drive personal.
 
 ## Contexto y revisión
 

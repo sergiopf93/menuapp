@@ -52,8 +52,17 @@ let server;
       dias: Dates.range(Dates.addDays(monday, offset), 7).map(fecha => ({ fecha, diaSemana: Dates.dayName(fecha), comida: { activo: true, platosMayores: [{ id: 'pl-judia', nombre: 'Judías verdes' }] }, cena: { activo: false, platosMayores: [] } })),
     }));
     state.menuActual = menus[4];
+    window.testMenus = menus;
+    window.menuWrites = [];
+    window.failMenuWrite = false;
     Drive.listMenuFiles = async () => menus.map(m => ({ id: m.id, name: `${m.id}.json` }));
     Drive.readMenuJson = async id => menus.find(m => m.id === id);
+    Drive.writeMenuJson = async (name, menu, fileId) => {
+      if (window.failMenuWrite) throw new Error('Fallo de prueba');
+      window.menuWrites.push({ name, menu: structuredClone(menu), fileId });
+      const index = menus.findIndex(m => m.id === fileId);
+      if (index >= 0) menus[index] = structuredClone(menu);
+    };
     Drive.getFolderIds = () => ({ rootFolderId: 'test', menusFolderId: 'test-menu' });
     Drive.initFolderStructure = async () => ({});
     let remote = null;
@@ -108,8 +117,78 @@ let server;
     const target = scroll.querySelector(`[data-fecha="${monday}"]`);
     return { scroll: scroll.scrollLeft, delta: target.getBoundingClientRect().left - scroll.getBoundingClientRect().left };
   });
-  assert(scrollInfo.scroll > 0 && Math.abs(scrollInfo.delta) < 2, JSON.stringify(scrollInfo));
-  console.log('PASS menú abre lunes actual con histórico lateral y calendario Inicio presente');
+  assert.equal(scrollInfo.scroll, 0);
+  assert(Math.abs(scrollInfo.delta) < 2, JSON.stringify(scrollInfo));
+  const visibleDates = await page.locator('#view-menu .menu-cal-col').evaluateAll(cols => cols.map(col => col.dataset.fecha));
+  const monday = await page.evaluate(() => Dates.startOfWeek(Dates.today()));
+  assert.equal(visibleDates.length, 14);
+  assert(visibleDates.every(date => date >= monday), 'Menú excluye todas las semanas anteriores');
+  console.log('PASS Menú muestra solo semana actual y futura, e Inicio conserva su calendario');
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    assert.equal(await page.locator('#menu-editar-seleccion option').count(), 2);
+    assert(await page.locator('#menu-btn-historial').isVisible());
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(output, `menu-semanas-${viewport.width}.png`), fullPage: true });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Edición de futuro: error recuperable, guardado y conservación de la semana activa.
+  await page.locator('#menu-editar-seleccion').selectOption('1');
+  await page.locator('#menu-btn-editar').click();
+  assert.equal(await page.locator('#menu-btn-confirmar').innerText(), 'Guardar cambios');
+  const futureCell = page.locator('#view-menu [data-momento="cena"][data-perfil="mayores"]').first();
+  await futureCell.click();
+  await page.waitForTimeout(120);
+  await page.locator('.popup-plato-item').first().click();
+  await page.evaluate(() => { window.failMenuWrite = true; });
+  await page.locator('#menu-btn-confirmar').click();
+  await page.waitForFunction(() => document.querySelector('#menu-btn-confirmar')?.disabled === false);
+  assert((await page.locator('#view-menu').innerText()).includes('Judías verdes'));
+  assert.equal(await page.evaluate(() => window.menuWrites.length), 0);
+  await page.evaluate(() => { window.failMenuWrite = false; });
+  await page.locator('#menu-btn-confirmar').click();
+  await page.locator('#menu-editar-seleccion').waitFor();
+  assert.deepEqual(await page.evaluate(() => ({
+    active: App.getState().menuActual.id, written: window.menuWrites.at(-1).fileId,
+    dish: window.menuWrites.at(-1).menu.dias[0].cena.platosMayores[0].nombre,
+    privateMetadata: '_fileId' in window.menuWrites.at(-1).menu,
+  })), { active: 'menu-4', written: 'menu-5', dish: 'Judías verdes', privateMetadata: false });
+  // La semana actual sigue editable y cancelar nunca escribe.
+  await page.locator('#menu-btn-editar').click();
+  const currentDate = await page.locator('#view-menu .menu-cal-col').first().getAttribute('data-fecha');
+  assert.equal(currentDate, monday);
+  await page.locator('#menu-btn-cancelar').click();
+  await page.locator('#menu-editar-seleccion').waitFor();
+  assert.equal(await page.evaluate(() => window.menuWrites.length), 1);
+  // El historial empieza por la actual; después vienen las anteriores de reciente a antigua.
+  await page.locator('#menu-btn-historial').click();
+  await page.locator('.hist-menu-card').first().waitFor();
+  const historyLabels = await page.locator('.hist-menu-card .cfg-item-nombre').allTextContents();
+  const expectedDates = await page.evaluate(() => [0, -7, -14, -21, -28, 7].map(offset => Dates.format(Dates.addDays(Dates.startOfWeek(Dates.today()), offset), 'short')));
+  historyLabels.forEach((label, i) => assert(label.includes(expectedDates[i]), label));
+  await page.screenshot({ path: path.join(output, 'historial-semanas-mobile.png'), fullPage: true });
+  await page.locator('.hist-menu-card').nth(1).click();
+  await page.locator('.modal-footer button').click();
+  const pastCell = page.locator('#view-menu [data-momento="cena"][data-perfil="mayores"]').first();
+  await pastCell.click();
+  await page.waitForTimeout(120);
+  await page.locator('.popup-plato-item').first().click();
+  await page.locator('#menu-btn-confirmar').click();
+  await page.locator('#view-historial.active .hist-menu-card').first().waitFor();
+  assert.deepEqual(await page.evaluate(() => ({
+    active: App.getState().menuActual.id, written: window.menuWrites.at(-1).fileId,
+    status: window.menuWrites.at(-1).menu.estado,
+    dish: window.menuWrites.at(-1).menu.dias[0].cena.platosMayores[0].nombre,
+  })), { active: 'menu-4', written: 'menu-3', status: 'confirmado', dish: 'Judías verdes' });
+  await page.locator('.hist-menu-card').nth(1).click();
+  assert((await page.locator('.modal-body').innerText()).includes('Judías verdes'));
+  await page.locator('.modal-footer button').click();
+  await page.locator('#menu-btn-cancelar').click();
+  await page.locator('#view-historial.active .hist-menu-card').first().waitFor();
+  assert.equal(await page.evaluate(() => window.menuWrites.length), 2);
+  await page.evaluate(() => App.navigate('menu'));
+  await page.locator('#menu-btn-nuevo').waitFor();
+  console.log('PASS editar futuro e histórico, guardar en archivo original, reintentar errores y cancelar sin escrituras');
   await page.locator('#menu-btn-nuevo').click();
   await page.locator('#menu-paso1-next').click();
   assert.equal(await page.locator('#menu-bebe-solo-cenas').isChecked(), false);

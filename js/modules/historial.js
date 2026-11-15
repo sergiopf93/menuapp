@@ -42,10 +42,14 @@ const Historial = (() => {
       for (const f of archivos) {
         try {
           const m = await Drive.readMenuJson(f.id);
-          if (m) _menus.push({ ...m, _fileId: f.id });
+          if (m) _menus.push({ ...m, _fileId: f.id, _fileName: f.name });
         } catch { _erroresCarga++; }
       }
-      _menus.sort((a, b) => String(b.fechaInicio || '').localeCompare(String(a.fechaInicio || '')));
+      const hoy = Dates.today();
+      const grupo = m => m.fechaInicio <= hoy && m.fechaFin >= hoy ? 0 : m.fechaFin < hoy ? 1 : 2;
+      _menus.sort((a, b) => grupo(a) - grupo(b) || (grupo(a) === 2
+        ? String(a.fechaInicio || '').localeCompare(String(b.fechaInicio || ''))
+        : String(b.fechaInicio || '').localeCompare(String(a.fechaInicio || ''))));
       _renderLista();
     } catch (err) {
       document.getElementById('hist-content').innerHTML =
@@ -71,11 +75,11 @@ const Historial = (() => {
       return;
     }
 
-    container.innerHTML = _menus.map(m => {
+    container.innerHTML = _menus.map((m, index) => {
       const estaActivo = m.fechaInicio <= Dates.today() && m.fechaFin >= Dates.today();
       const numPlatos = _contarPlatos(m);
       return `
-        <div class="cfg-item-card hist-menu-card" data-id="${m.id}" style="cursor:pointer">
+        <button type="button" class="cfg-item-card hist-menu-card" data-index="${index}" style="cursor:pointer;width:100%;text-align:left">
           <div class="cfg-item-info">
             <div style="display:flex;align-items:center;gap:var(--space-2)">
               <span class="cfg-item-nombre">
@@ -89,12 +93,12 @@ const Historial = (() => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="flex-shrink:0;color:var(--color-text-muted)">
             <polyline points="9 18 15 12 9 6"/>
           </svg>
-        </div>`;
+        </button>`;
     }).join('');
 
     container.querySelectorAll('.hist-menu-card').forEach(card => {
       card.addEventListener('click', () => {
-        const menu = _menus.find(m => m.id === card.dataset.id);
+        const menu = _menus[Number(card.dataset.index)];
         if (menu) _mostrarDetalle(menu);
       });
     });
@@ -110,9 +114,13 @@ const Historial = (() => {
     const container = document.createElement('div');
     container.innerHTML = tablaHtml;
 
-    UI.showModal({
-      title: `Semana del ${Dates.format(menu.fechaInicio,'long')}`,
+    const modal = UI.showModal({
+      title: `Menú del ${Dates.format(menu.fechaInicio,'long')}`,
       content: container,
+      buttons: [{ label: 'Editar menú', type: 'primary', onClick: () => {
+        modal.close();
+        Menu.editar(menu, 'historial');
+      } }],
     });
   }
 

@@ -15,6 +15,9 @@ const Menu = (() => {
 
   let _paso = 0;
   let _menuEnCurso = null;
+  let _edicion = null;
+  let _guardando = false;
+  let _cargaVista = 0;
 
   // ── Reglas alimenticias (OMS / guía nutricional) ─────────────────
   // Seguimiento semanal por grupo alimenticio
@@ -43,6 +46,7 @@ const Menu = (() => {
   function render() {
     _ensureView();
     _paso = 0;
+    _edicion = null;
     _renderVista();
   }
 
@@ -90,16 +94,21 @@ const Menu = (() => {
     view.innerHTML = `<div class="loading-container" style="padding:var(--space-8) 0">
       <div class="loading-spinner"></div><p class="loading-message">Cargando menús...</p></div>`;
 
+    const carga = ++_cargaVista;
     const hoy = Dates.today();
     const menusEnDrive = await Drive.listMenuFiles().catch(()=>[]);
     const todosMenus = [];
     for (const f of menusEnDrive) {
-      try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
+      try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push({ ...m, _fileId: f.id, _fileName: f.name }); } catch{}
     }
+    if (carga !== _cargaVista || _paso !== 0) return;
     const menuActivo = todosMenus
       .filter(m => m.fechaInicio<=hoy&&m.fechaFin>=hoy&&m.estado!=='historico'&&m.estado!=='borrador')
       .sort((a,b) => (b.confirmadoEn||b.generadoEn||'').localeCompare(a.confirmadoEn||a.generadoEn||''))[0];
-    const diasPlanificados = _combinarDiasDeMenus(todosMenus.filter(m=>m.estado!=='borrador'));
+    const lunes = Dates.startOfWeek(hoy);
+    const menusVisibles = todosMenus.filter(m => m.estado !== 'borrador' && m.estado !== 'historico' && m.fechaFin >= lunes)
+      .sort((a,b) => a.fechaInicio.localeCompare(b.fechaInicio));
+    const diasPlanificados = _combinarDiasDeMenus(menusVisibles).filter(d => d.fecha >= lunes);
     const diasCombinados = _incluirSemanaActual(diasPlanificados, hoy);
     const config = App.getState().config||{};
     const tieneBebe = (config.personas||[]).some(p=>p.tipo==='bebe');
@@ -108,33 +117,51 @@ const Menu = (() => {
     view.innerHTML = `
       <div class="module-header">
         <h1 class="module-title">Menú</h1>
-        <button class="btn btn-primary btn-sm" id="menu-btn-nuevo">+ Nuevo</button>
+        <div style="display:flex;gap:var(--space-2)">
+          <button class="btn btn-secondary btn-sm" id="menu-btn-historial">Historial</button>
+          <button class="btn btn-primary btn-sm" id="menu-btn-nuevo">+ Nuevo</button>
+        </div>
       </div>
-      ${diasCombinados.length>0
-        ? `<div class="menu-calendario-wrapper">${_buildCalendario(diasCombinados,tieneBebe)}</div>
+      ${menusVisibles.length ? `<div class="menu-edicion-selector">
+        <label for="menu-editar-seleccion">Menú que quieres editar</label>
+        <select id="menu-editar-seleccion" class="form-control">
+          ${menusVisibles.map((m,i) => `<option value="${i}" ${m === menuActivo ? 'selected' : ''}>Del ${Dates.format(m.fechaInicio,'short')} al ${Dates.format(m.fechaFin,'short')}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-full" id="menu-btn-editar">✏️ Editar menú seleccionado</button>
+      </div>` : ''}
+      <div class="menu-calendario-wrapper">${_buildCalendario(diasCombinados,tieneBebe)}</div>
            <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">
              ${menuActivo
-               ? `<button class="btn btn-secondary" style="flex:1" id="menu-btn-editar">✏️ Editar semana</button>
-                  <button class="btn btn-primary" style="flex:1" id="menu-btn-compra">🛒 Compra</button>`
+               ? `<button class="btn btn-primary btn-full" id="menu-btn-compra">🛒 Compra</button>`
                : `<button class="btn btn-primary btn-full" id="menu-btn-nuevo2">Generar menú de esta semana</button>`}
            </div>
            <div style="margin-top:var(--space-3)">
              <button class="btn btn-secondary btn-full" id="menu-btn-kpi">📊 Ver equilibrio nutricional</button>
-           </div>`
-        : `<div class="card card-empty">
-             <div class="empty-state-icon">📅</div>
-             <p>No hay menú generado todavía.</p>
-             <button class="btn btn-primary" id="menu-btn-nuevo2">Generar primer menú</button>
-           </div>`}`;
+           </div>`;
 
+    document.getElementById('menu-btn-historial')?.addEventListener('click',()=>App.navigate('historial'));
     document.getElementById('menu-btn-kpi')?.addEventListener('click', ()=>_mostrarKPIs(diasPlanificados));
     document.getElementById('menu-btn-nuevo')?.addEventListener('click',_iniciarAsistente);
     document.getElementById('menu-btn-nuevo2')?.addEventListener('click',_iniciarAsistente);
     document.getElementById('menu-btn-editar')?.addEventListener('click',()=>{
-      if(menuActivo){ _menuEnCurso=JSON.parse(JSON.stringify(menuActivo)); _paso=5; _renderAsistente(); }
+      const seleccionado = menusVisibles[Number(document.getElementById('menu-editar-seleccion').value)];
+      if (seleccionado) editar(seleccionado);
     });
     document.getElementById('menu-btn-compra')?.addEventListener('click',()=>App.navigate('compra'));
     requestAnimationFrame(_scrollCalendarioAHoy);
+  }
+
+  /** Abre una copia editable del menú y conserva su archivo y vista de origen. */
+  function editar(menu, origen = 'menu') {
+    if (_guardando) return;
+    _cargaVista++;
+    _menuEnCurso = JSON.parse(JSON.stringify(menu));
+    delete _menuEnCurso._fileId;
+    delete _menuEnCurso._fileName;
+    _edicion = { fileId: menu._fileId, fileName: menu._fileName, origen, original: menu };
+    UI.activateView('menu');
+    _paso = 5;
+    _renderAsistente();
   }
 
   // ── Scroll al lunes de semana actual ────────────────────────────
@@ -161,7 +188,6 @@ const Menu = (() => {
   // ── Combinar días ────────────────────────────────────────────────
 
   function _incluirSemanaActual(dias, hoy) {
-    if (!dias.length) return dias;
     const porFecha = new Map(dias.map(dia => [dia.fecha, dia]));
     for (const fecha of Dates.range(Dates.startOfWeek(hoy), 7)) {
       if (!porFecha.has(fecha)) porFecha.set(fecha, {
@@ -368,6 +394,8 @@ const Menu = (() => {
   // ── Asistente ────────────────────────────────────────────────────
 
   function _iniciarAsistente() {
+    _cargaVista++;
+    _edicion = null;
     // La fecha de inicio siempre es el próximo lunes
     const manana = Dates.tomorrow();
     const lunesProximo = Dates.startOfWeek(manana) >= manana
@@ -400,7 +428,7 @@ const Menu = (() => {
         <div class="menu-asist-header">
           ${_paso>1&&_paso<5?`<button class="btn-icon" id="menu-btn-back" style="color:var(--color-text)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="15 18 9 12 15 6"/></svg></button>`:''}
-          <h1 class="module-title" style="flex:1">${_paso<5?`Paso ${_paso} de 4`:'Menú generado'}</h1>
+          <h1 class="module-title" style="flex:1">${_paso<5?`Paso ${_paso} de 4`:_edicion?'Editar menú':'Menú generado'}</h1>
           <button class="btn-text" id="menu-btn-cancelar">Cancelar</button>
         </div>
         ${_paso<5?`<div class="menu-progress">
@@ -409,7 +437,12 @@ const Menu = (() => {
         <div id="menu-paso-content">${_renderPaso()}</div>
       </div>`;
     document.getElementById('menu-btn-back')?.addEventListener('click',()=>{ _paso--;_renderAsistente(); });
-    document.getElementById('menu-btn-cancelar')?.addEventListener('click',()=>{ _paso=0;_renderVista(); });
+    document.getElementById('menu-btn-cancelar')?.addEventListener('click',()=>{
+      const origen = _edicion?.origen || 'menu';
+      _edicion = null;
+      _paso = 0;
+      App.navigate(origen);
+    });
     _bindPasoEvents();
   }
 
@@ -558,6 +591,7 @@ const Menu = (() => {
         ${adaptacion ? `<p class="text-sm text-muted" style="margin-bottom:var(--space-3)">${usaHabitos
           ? `Se han priorizado vuestros hábitos de las últimas ${adaptacion.ventanaSemanas} semanas, manteniendo las reglas del catálogo.`
           : 'Todavía no hay dos semanas de histórico suficiente para adaptar las preferencias. Se mantienen las reglas del catálogo.'}</p>` : ''}
+        <p class="text-sm" style="margin-bottom:var(--space-3)">Del ${Dates.format(_menuEnCurso.fechaInicio,'long')} al ${Dates.format(_menuEnCurso.fechaFin,'long')}</p>
         <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">Pulsa cualquier celda para cambiar el plato.</p>
         <div class="menu-info-panels">
           <button class="btn btn-secondary btn-sm" id="menu-panel-inv-btn">📦 Despensa</button>
@@ -567,7 +601,7 @@ const Menu = (() => {
           ${_buildCalendarioEditable(diasCombinados,tieneBebe)}
         </div>
         <div class="menu-paso-footer" style="margin-top:var(--space-6)">
-          <button class="btn btn-primary btn-full" id="menu-btn-confirmar">✓ Confirmar menú</button>
+          <button class="btn btn-primary btn-full" id="menu-btn-confirmar">${_edicion ? 'Guardar cambios' : '✓ Confirmar menú'}</button>
         </div>
       </div>`;
   }
@@ -1421,20 +1455,37 @@ const Menu = (() => {
 
   async function _confirmarMenu(){
     const btn=document.getElementById('menu-btn-confirmar');
+    if (_guardando) return;
+    _guardando = true;
+    const edicion = _edicion;
     if(btn){btn.disabled=true;btn.textContent='Guardando...';}
-    _menuEnCurso.estado='confirmado';
-    _menuEnCurso.confirmadoEn=new Date().toISOString();
-    const fileName=`semana_${_menuEnCurso.fechaInicio}.json`;
-    await Drive.writeMenuJson(fileName,_menuEnCurso);
-    const notifs=Notificaciones.generarParaMenu(_menuEnCurso);
-    const config={...(App.getState().config||{})};
-    if(!config.notificaciones) config.notificaciones={};
-    config.notificaciones.pendientes=notifs;
-    await App.setState('config',config);
-    App.getState().menuActual=_menuEnCurso;
-    UI.showToast('Menú confirmado ✓','success',2000);
-    await new Promise(r=>setTimeout(r,800));
-    App.navigate('compra');
+    document.getElementById('menu-btn-cancelar')?.setAttribute('disabled','');
+    try {
+      const menu = { ..._menuEnCurso, confirmadoEn: new Date().toISOString() };
+      if (!edicion) menu.estado = 'confirmado';
+      const fileName = edicion?.fileName || `semana_${menu.fechaInicio}.json`;
+      await Drive.writeMenuJson(fileName, menu, edicion?.fileId);
+      const notifs = Notificaciones.generarParaMenu(menu);
+      const anteriores = new Set(edicion ? Notificaciones.generarParaMenu(edicion.original).map(n => n.id) : []);
+      const config = App.getState().config || {};
+      const pendientes = edicion ? (config.notificaciones?.pendientes || []).filter(n => !anteriores.has(n.id)) : [];
+      await App.setState('config', { ...config, notificaciones: {
+        ...(config.notificaciones || {}),
+        pendientes: [...new Map([...pendientes, ...notifs].map(n => [n.id,n])).values()],
+      } });
+      if (!edicion || App.getState().menuActual?.id === menu.id) App.getState().menuActual = menu;
+      UI.showToast(edicion ? 'Cambios guardados ✓' : 'Menú confirmado ✓','success',2000);
+      const destino = edicion?.origen || 'compra';
+      _edicion = null;
+      _paso = 0;
+      App.navigate(destino);
+    } catch (err) {
+      UI.showToast(`No se pudo guardar el menú: ${err.message}`, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = edicion ? 'Guardar cambios' : '✓ Confirmar menú'; }
+    } finally {
+      _guardando = false;
+      document.getElementById('menu-btn-cancelar')?.removeAttribute('disabled');
+    }
   }
 
   // ── Popup platos ─────────────────────────────────────────────────
@@ -1443,6 +1494,7 @@ const Menu = (() => {
   let _portapapeles = null;  // { platos: [], label: '' }
 
   function _abrirPopupPlato(fecha, momento, perfil){
+    if (_guardando) return;
     const state = App.getState();
     const platosActivos = (state.platos||[]).filter(p=>p.activo!==false);
     const dia = _menuEnCurso.dias.find(d=>d.fecha===fecha);
@@ -1925,6 +1977,6 @@ const Menu = (() => {
     UI.showModal({ title:'📊 Equilibrio nutricional semanal', content: container });
   }
 
-  return { render, getCalendarioHTML };
+  return { render, getCalendarioHTML, editar };
 
 })();

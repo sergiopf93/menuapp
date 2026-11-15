@@ -132,3 +132,16 @@ test('fallar una página rechaza el listado completo para no ocultar un historia
     : json({ files: [{ id: 'first' }], nextPageToken: 'next' }));
   await assert.rejects(h.Drive.listMenuFiles(), /403/);
 });
+
+
+test('editar un menú por ID actualiza el archivo original sin buscar ni crear otro', async () => {
+  const h = setup();
+  h.handle(async (url, options) => {
+    assert.equal(options.method, 'PATCH');
+    assert.match(url, /files\/original-id\?uploadType=media/);
+    assert.deepEqual(JSON.parse(await options.body.text()), { id: 'menu', dias: [] });
+    return json({ id: 'original-id', modifiedTime: '2026-11-15T18:00:00Z' });
+  });
+  assert.equal(await h.Drive.writeMenuJson('nombre-alternativo.json', { id: 'menu', dias: [] }, 'original-id'), 'original-id');
+  assert.equal(h.calls.length, 1);
+});

@@ -112,12 +112,13 @@ const Drive = (() => {
    * Escribe un fichero JSON en la subcarpeta de menús.
    * @param {string} fileName - Ej: 'semana_2025-07-07.json'
    * @param {object} data
+   * @param {string|null} fileId - Archivo original al editar, aunque tenga otro nombre.
    * @returns {Promise<string>}
    */
-  async function writeMenuJson(fileName, data) {
+  async function writeMenuJson(fileName, data, fileId = null) {
     const content = JSON.stringify(data, null, 2);
     const blob = new Blob([content], { type: 'application/json' });
-    const existingId = await _getFileId(fileName, _cache.menusFolderId);
+    const existingId = fileId || await _getFileId(fileName, _cache.menusFolderId);
 
     if (existingId) return _updateFile(existingId, blob);
     return _createFile(fileName, blob, _cache.menusFolderId);

@@ -40,7 +40,7 @@ function setup({ platos = [], menus = [], config = {}, inventario = [], today = 
   };
   const source = menuSource
     .replace('_paso=5; _renderAsistente();', '_paso=5;')
-    .replace('return { render, getCalendarioHTML };', `return {
+    .replace('return { render, getCalendarioHTML, editar };', `return {
       build: _construirHabitos, weight: _pesoHabito, choose: _elegirPlato,
       includeWeek: _incluirSemanaActual, combine: _combinarDiasDeMenus,
       secondAdult: _elegirSegundoMayores,
