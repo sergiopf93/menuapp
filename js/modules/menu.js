@@ -247,18 +247,19 @@ const Menu = (() => {
           // Separador de momento
           html+=`<div class="menu-cal-bloque-sep" style="height:${ALT_LABEL}px"></div>`;
           // Adultos
-          const plMay=bloque?.activo&&bloque.platosMayores?.length
+          const plMay=bloque?.activo&&bloque._mayActivo!==false&&bloque.platosMayores?.length
             ? bloque.platosMayores.map(p=>p.nombre).join(' + ')
-            : (bloque?.activo===false||!bloque?'—':'–');
-          const esEsp=!bloque?.activo;
+            : (bloque?.activo===false||bloque?._mayActivo===false||!bloque?'—':'–');
+          const esEsp=!bloque?.activo||bloque._mayActivo===false;
           html+=`<div class="menu-cal-celda ${esEsp?'menu-cal-celda--esp':''}"
                       style="height:${ALT_FILA}px">${UI.escapeHtml(plMay)}</div>`;
           // Bebé
           if(tieneBebe){
-            const plBebe=bloque?.activo&&bloque.platosBebe!==null&&bloque.platosBebe?.length
+            const bebeInactivo=!bloque?.activo||bloque._bebeActivo===false||bloque.platosBebe===null;
+            const plBebe=!bebeInactivo&&bloque.platosBebe?.length
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ')
-              : (bloque?.platosBebe===null?'—':'–');
-            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${esEsp?'menu-cal-celda--esp':''}"
+              : (bebeInactivo?'—':'–');
+            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${bebeInactivo?'menu-cal-celda--esp':''}"
                         style="height:${ALT_FILA}px">${UI.escapeHtml(plBebe)}</div>`;
           }
         });
@@ -318,27 +319,26 @@ const Menu = (() => {
         ['comida','cena'].forEach(momento=>{
           const bloque=dia[momento];
           html+=`<div class="menu-cal-bloque-sep" style="height:${ALT_LABEL}px"></div>`;
-          // Solo marca como no-editable si el día está explícitamente cancelado
-          // (activo===false AND hay tipo especial que lo anula)
-          // Los días simplemente vacíos SÍ son editables
           const esCancelado = bloque?.activo===false && !!dia.tipoEspecial;
+          const mayorCancelado = esCancelado || bloque?._mayActivo===false;
+          const bebeCancelado = esCancelado || bloque?._bebeActivo===false;
 
           // Adultos editable
           const plMay=bloque?.platosMayores?.length
             ? bloque.platosMayores.map(p=>p.nombre).join(' + ') : '+';
-          html+=`<div class="menu-cal-celda ${esCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+          html+=`<div class="menu-cal-celda ${mayorCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
                       style="height:${ALT_FILA}px"
                       data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="mayores"
-                      >${esCancelado?'—':UI.escapeHtml(plMay)}</div>`;
+                      >${mayorCancelado?'—':UI.escapeHtml(plMay)}</div>`;
 
           // Bebé editable
           if(tieneBebe){
             const plBebe=bloque?.platosBebe?.length
               ? bloque.platosBebe.map(p=>p.nombre).join(' + ') : '+';
-            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${esCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
+            html+=`<div class="menu-cal-celda menu-cal-celda--bebe ${bebeCancelado?'menu-cal-celda--esp':'menu-cal-celda--edit'}"
                         style="height:${ALT_FILA}px"
                         data-fecha="${dia.fecha}" data-momento="${momento}" data-perfil="bebe"
-                        >${esCancelado?'—':UI.escapeHtml(plBebe)}</div>`;
+                        >${bebeCancelado?'—':UI.escapeHtml(plBebe)}</div>`;
           }
         });
         html+=`</div>`;
@@ -383,6 +383,7 @@ const Menu = (() => {
       estado:'borrador',
       generadoEn:null,
       confirmadoEn:null,
+      bebeSoloCenasLaborables:false,
     };
     _paso=1; _renderAsistente();
   }
@@ -457,6 +458,14 @@ const Menu = (() => {
     return `
       <div class="menu-paso">
         <p class="menu-paso-desc">Marca los días que no comerás o cenarás en casa.</p>
+        ${(config.personas||[]).some(p=>p.tipo==='bebe') ? `
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="menu-bebe-solo-cenas" aria-describedby="menu-bebe-solo-cenas-ayuda" ${_menuEnCurso.bebeSoloCenasLaborables?'checked':''}/>
+              <span>Bebé: solo cenas de lunes a viernes</span>
+            </label>
+            <p class="form-hint" id="menu-bebe-solo-cenas-ayuda">Se aplica a todas las semanas de este menú. Sábados y domingos incluyen comida y cena, salvo los días especiales que marques.</p>
+          </div>` : ''}
         ${tipos.length===0?`<div class="card card-empty"><p class="text-sm">Sin tipos configurados.<br>Añádelos en <strong>Config → Días especiales</strong>.</p></div>`:''}
         <div class="menu-dias-especiales">
           ${dias.map(fecha=>{
@@ -543,7 +552,7 @@ const Menu = (() => {
     return `
       <div class="menu-paso-tabla">
         ${adaptacion ? `<p class="text-sm text-muted" style="margin-bottom:var(--space-3)">${usaHabitos
-          ? 'Se han priorizado vuestros hábitos de las semanas recientes, manteniendo las reglas del catálogo.'
+          ? `Se han priorizado vuestros hábitos de las últimas ${adaptacion.ventanaSemanas} semanas, manteniendo las reglas del catálogo.`
           : 'Todavía no hay dos semanas de histórico suficiente para adaptar las preferencias. Se mantienen las reglas del catálogo.'}</p>` : ''}
         <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">Pulsa cualquier celda para cambiar el plato.</p>
         <div class="menu-info-panels">
@@ -570,8 +579,10 @@ const Menu = (() => {
     _setGenMsg('Cargando historial...');
     const hoy=Dates.today();
     const referenciaHabitos=horizInicio<hoy?horizInicio:hoy;
-    const historial=await _cargarHistorialReciente(6,horizInicio,referenciaHabitos);
-    const habitos=_construirHabitos(historial, platosActivos, horizInicio);
+    const semanasHabitos=_semanasHabitos(config?.configuracionMenus?.semanasHistorialHabitos);
+    // Las restricciones de repetición conservan su historial aunque se reduzca la ventana de preferencias.
+    const historial=await _cargarHistorialReciente(Math.max(6,semanasHabitos),horizInicio,referenciaHabitos);
+    const habitos=_construirHabitos(historial, platosActivos, horizInicio, semanasHabitos);
     _setGenMsg('Calculando prioridades...');
 
     const consumidosAntesDel=_calcularConsumidosAntesDel(historial,horizInicio);
@@ -600,7 +611,9 @@ const Menu = (() => {
       const tipoEsp=tipoEspId?(config?.tiposDiaEspecial||[]).find(t=>t.id===tipoEspId):null;
       const afectaA=tipoEsp?.afectaA||'todos';
       const comidaMayAct = !tipoEsp?.afectaComida || afectaA==='bebe';
-      const comidaBebAct = !tipoEsp?.afectaComida || afectaA==='mayores';
+      const diaSemana = Dates.fromISO(fecha).getDay();
+      const soloCenaBebe = _menuEnCurso.bebeSoloCenasLaborables === true && diaSemana>=1 && diaSemana<=5;
+      const comidaBebAct = (!tipoEsp?.afectaComida || afectaA==='mayores') && !soloCenaBebe;
       const cenaMayAct   = !tipoEsp?.afectaCena   || afectaA==='bebe';
       const cenaBebAct   = !tipoEsp?.afectaCena   || afectaA==='mayores';
       // Día fácil: esDiaFacil=true → prioriza platos fáciles en los momentos configurados
@@ -688,11 +701,13 @@ const Menu = (() => {
               soloFacil: dia.facilComida, contadorGrupos, relajarDistancia:true,
             });
           }
-          // Fallback 2: ignorar todos los límites excepto tipoMenu/tipoComida
+          // Último recurso: relajar equilibrio, conservando repetición, consecutivos y facilidad
           if(!cands.length){
             cands = platosActivos.filter(p=>
               (p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos')) &&
               p.tipoPlato !== 'segundo' &&
+              _puedeUsarMayor(p,usadosSemana,di,ultimoUsoMayores) &&
+              (!dia.facilComida || p.preparacionFacil) &&
               (p.tipoComida?.includes('comida')||p.tipoComida?.includes('ambos'))
             );
           }
@@ -705,7 +720,7 @@ const Menu = (() => {
               sobrasBebe[p.id] = (sobrasBebe[p.id]||0) + p.diasSobras;
 
             if(p.tipoPlato === 'primero'){
-              const segundo = _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, di, 'comida', ultimoUsoMayores, contexto('mayores','comida'));
+              const segundo = _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, di, 'comida', ultimoUsoMayores, {...contexto('mayores','comida'), acompananteId:p.id}, dia.facilComida);
               blComida.platosMayores = segundo
                 ? [{id:p.id,nombre:p.nombre},{id:segundo.id,nombre:segundo.nombre}]
                 : [{id:p.id,nombre:p.nombre}];
@@ -738,13 +753,13 @@ const Menu = (() => {
       const blCena = dia.cena;
       if(blCena.activo){
 
-        // 1. Adultos cena — siempre plato único
+        // 1. Adultos cena — una preparación, incluidos primeros o segundos compatibles
         if(blCena._mayActivo){
           let cands = _filtrarMayores({
             platos:platosActivos, momento:'cena',
             usadosSemana, usadosReciente, artsPrioritarios, ultimoUsoMayores,
             protPorDia, diaIndex:di, esCena:true, cfgMenus,
-            forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
+            permitirSegundo:true, soloFacil: dia.facilCena, contadorGrupos,
           });
           // Fallback 1: relajar distancia mínima entre repeticiones
           if(!cands.length){
@@ -752,15 +767,16 @@ const Menu = (() => {
               platos:platosActivos, momento:'cena',
               usadosSemana, usadosReciente:[], artsPrioritarios, ultimoUsoMayores,
               protPorDia, diaIndex:di, esCena:true, cfgMenus,
-              forzarUnico:true, soloFacil: dia.facilCena, contadorGrupos,
+              permitirSegundo:true, soloFacil: dia.facilCena, contadorGrupos,
               relajarDistancia: true,
             });
           }
-          // Fallback 2: ignorar límite semanal (último recurso)
+          // Último recurso: relajar equilibrio, conservando repetición, consecutivos y facilidad
           if(!cands.length){
             cands = platosActivos.filter(p=>
               (p.tipoMenu?.includes('mayores')||p.tipoMenu?.includes('todos')) &&
-              p.tipoPlato==='unico' &&
+              _puedeUsarMayor(p,usadosSemana,di,ultimoUsoMayores) &&
+              (!dia.facilCena || p.preparacionFacil) &&
               (p.tipoComida?.includes('cena')||p.tipoComida?.includes('ambos'))
             );
           }
@@ -788,7 +804,7 @@ const Menu = (() => {
 
     _menuEnCurso.dias=dias;
     _menuEnCurso.adaptacionHabitos = {
-      version: 1, ventanaSemanas: 6, fechaCorte: habitos.fechaCorte,
+      version: 2, ventanaSemanas: habitos.ventanaSemanas, fechaCorte: habitos.fechaCorte,
       semanasObservadas: Object.fromEntries(Object.entries(habitos.perfiles).map(([perfil, momentos]) =>
         [perfil, Object.fromEntries(Object.entries(momentos).map(([momento, datos]) => [momento, datos.semanas.size]))])),
     };
@@ -842,24 +858,27 @@ const Menu = (() => {
     });
   }
 
+  function _puedeUsarMayor(plato, usadosSemana, diaIndex, ultimoUsoMayores) {
+    const dias = usadosSemana.get(plato.id) || [];
+    if(dias.length >= (plato.permiteRepeticion ? 2 : 1)) return false;
+    const ultimo = ultimoUsoMayores?.get(plato.id) ?? dias[dias.length-1];
+    return ultimo===undefined || diaIndex-ultimo>1;
+  }
+
   // ── Filtro candidatos adultos ────────────────────────────────────
 
   function _filtrarMayores({platos,momento,usadosSemana,usadosReciente,
-    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil,contadorGrupos,ultimoUsoMayores}){
+    artsPrioritarios,protPorDia,diaIndex,esCena,soloTipo,cfgMenus,forzarUnico,soloFacil,contadorGrupos,ultimoUsoMayores,permitirSegundo=false}){
     const eqCC = cfgMenus?.equilibrioComidaCena !== false;
     const eqP  = cfgMenus?.equilibrioProteinas  !== false;
-    const MAX  = 2;
 
     return platos.filter(p=>{
       if(!p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
       if(soloTipo && p.tipoPlato !== soloTipo) return false;
       if(forzarUnico && p.tipoPlato !== 'unico') return false;
-      if(!soloTipo && !forzarUnico && p.tipoPlato === 'segundo') return false;
+      if(!soloTipo && !forzarUnico && !permitirSegundo && p.tipoPlato === 'segundo') return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      const diasUsados = usadosSemana.get(p.id) || [];
-      if(diasUsados.length >= MAX) return false;
-      const ultimoDia = ultimoUsoMayores?.get(p.id) ?? diasUsados[diasUsados.length-1];
-      if(ultimoDia!==undefined && diaIndex-ultimoDia<=1) return false;
+      if(!_puedeUsarMayor(p,usadosSemana,diaIndex,ultimoUsoMayores)) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id]!==undefined && usadosReciente[p.id] < minSem) return false;
       if(soloFacil && !p.preparacionFacil) return false;
@@ -891,16 +910,13 @@ const Menu = (() => {
 
 
   /** Busca un segundo para adultos */
-  function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento, ultimoUsoMayores, contexto) {
-    const MAX = 2;
+  function _elegirSegundoMayores(platosActivos, usadosSemana, usadosReciente, diaIndex, momento, ultimoUsoMayores, contexto, soloFacil=false) {
     const cands = platosActivos.filter(p => {
       if(p.tipoPlato !== 'segundo') return false;
+      if(soloFacil && !p.preparacionFacil) return false;
       if(!p.tipoMenu?.includes('mayores') && !p.tipoMenu?.includes('todos')) return false;
       if(!p.tipoComida?.includes(momento) && !p.tipoComida?.includes('ambos')) return false;
-      const diasUsados = usadosSemana.get(p.id) || [];
-      if(diasUsados.length >= MAX) return false;
-      const ultimoDia = ultimoUsoMayores?.get(p.id) ?? diasUsados[diasUsados.length-1];
-      if(ultimoDia!==undefined && diaIndex-ultimoDia<=1) return false;
+      if(!_puedeUsarMayor(p,usadosSemana,diaIndex,ultimoUsoMayores)) return false;
       const minSem = p.frecuenciaMinSemanas || 2;
       if(usadosReciente[p.id]!==undefined && usadosReciente[p.id] < minSem) return false;
       return true;
@@ -998,12 +1014,12 @@ const Menu = (() => {
 
   /**
    * Genera el bloque de bebé para la CENA.
-   * Regla: minimizar cocciones — el bebé cena SIEMPRE lo que ya se cocinó.
+   * Prioriza preparaciones compartidas y sobras; si no hay, elige un plato propio compatible.
    * Prioridad:
    *   1. Sobras del mediodía de ese mismo día (platosMayores comida)
    *   2. Plato de cena de adultos si es compatible
    *   3. Sobras de días anteriores registradas en sobrasBebe
-   *   4. NUNCA plato exclusivo de bebé en cena — si no hay nada, repite sobra disponible
+   *   4. Si no queda ninguna opción compartida, busca en el catálogo de bebé
    */
   function _generarBloqueBebeConSobras(platosAdultos, platosActivos, usadosBebe,
     usadosReciente, artsPrioritarios, sobrasBebe, cfgMenus, soloFacil, momento, inventario,
@@ -1026,9 +1042,8 @@ const Menu = (() => {
         return db && (db.tipoMenu.includes('todos') || db.tipoMenu.includes('bebe'));
       });
       if(compatHoyDiferente.length > 0){
-        return _completarPrimeroSegundo([compatHoyDiferente[0]],
-          platosActivos, platosActivos.find(p=>p.id===compatHoyDiferente[0].id),
-          usadosBebe, usadosReciente, momento, contexto);
+        return _asegurarPrimeroSegundo(compatHoyDiferente,
+          platosActivos, usadosBebe, usadosReciente, momento, contexto);
       }
     }
 
@@ -1069,7 +1084,14 @@ const Menu = (() => {
         platosActivos, db, usadosBebe, usadosReciente, momento, contexto);
     }
 
-    return platosAdultos || [];
+    // Si no hay comida compartida ni sobras, la cena del bebé sigue necesitando un plato propio.
+    const candidatos = _filtrarCandidatosBebe(platosActivos, momento, usadosBebe, usadosReciente)
+      .filter(p => !soloFacil || p.preparacionFacil);
+    const propio = _elegirPlato(candidatos, [...artsPrioritarios], inventario, contexto);
+    if(!propio) return [];
+    usadosBebe.push(propio.id);
+    return _completarPrimeroSegundo([{id:propio.id,nombre:propio.nombre}],
+      platosActivos, propio, usadosBebe, usadosReciente, momento, contexto);
   }
 
   // ── Helpers bebé ─────────────────────────────────────────────────
@@ -1103,6 +1125,7 @@ const Menu = (() => {
     const platoDB   = platoDBId ? platosActivos.find(p=>p.id===platoDBId) : null;
     const tipo      = platoDB?.tipoPlato || platoObjeto?.tipoPlato || 'unico';
 
+    contexto = {...contexto, acompananteId:platoDBId};
     if(tipo === 'unico') return platosRef;  // plato único: no necesita complemento
 
     if(tipo === 'segundo'){
@@ -1133,6 +1156,7 @@ const Menu = (() => {
     const primerDB  = platosActivos.find(p => p.id === primerRef.id);
     const tipo      = primerDB?.tipoPlato || 'unico';
 
+    contexto = {...contexto, acompananteId:primerRef.id};
     if(tipo === 'unico') return compatAdultos;  // plato único: no añadir segundo
 
     if(tipo === 'segundo'){
@@ -1211,14 +1235,20 @@ const Menu = (() => {
   }
 
 
-  /** Aprende preferencias de planificación sin incluir el menú futuro que se está sustituyendo. */
-  function _construirHabitos(historial, platos, fechaReferencia) {
+  function _semanasHabitos(valor) {
+    return Number.isInteger(valor) && valor>=2 && valor<=12 ? valor : 4;
+  }
+
+  /** Aprende preferencias en los últimos N × 7 días, excluyendo hoy y el horizonte futuro. */
+  function _construirHabitos(historial, platos, fechaReferencia, semanas=4) {
     const hoy = Dates.today();
     const fechaCorte = fechaReferencia < hoy ? fechaReferencia : hoy;
-    const desde = Dates.addDays(Dates.startOfWeek(fechaCorte), -6*7);
-    const nuevaEstadistica = () => ({ semanas: new Set(), total: 0, platos: new Map(), tipos: new Map(), dias: new Map() });
+    const ventanaSemanas = _semanasHabitos(semanas);
+    const desde = Dates.addDays(fechaCorte, -ventanaSemanas*7);
+    const nuevaEstadistica = () => ({ semanas: new Set(), total: 0, platos: new Map(), tipos: new Map(), dias: new Map(), jornadas: new Map(), parejas: new Map() });
     const modelo = {
       fechaCorte,
+      ventanaSemanas,
       perfiles: Object.fromEntries(['mayores','bebe'].map(perfil =>
         [perfil, { comida: nuevaEstadistica(), cena: nuevaEstadistica() }])),
     };
@@ -1248,13 +1278,28 @@ const Menu = (() => {
           if (!datos.dias.has(diaSemana)) datos.dias.set(diaSemana, { total: 0, platos: new Map() });
           const jornada = datos.dias.get(diaSemana);
           jornada.total++;
+          const tipoJornada = diaSemana===0 || diaSemana===6 ? 'finde' : 'laborable';
+          if(!datos.jornadas.has(tipoJornada)) datos.jornadas.set(tipoJornada,
+            { total: 0, semanas: new Set(), platos: new Map(), preparaciones: new Map() });
+          const grupo = datos.jornadas.get(tipoJornada);
+          grupo.total++;
+          grupo.semanas.add(semana);
           const tipos = new Set();
+          const preparaciones = new Set();
           for (const plato of conocidos.values()) {
             datos.platos.set(plato.id, (datos.platos.get(plato.id) || 0) + 1);
             jornada.platos.set(plato.id, (jornada.platos.get(plato.id) || 0) + 1);
+            if(!datos.parejas.has(plato.id)) datos.parejas.set(plato.id, new Map());
+            const parejas = datos.parejas.get(plato.id);
+            for(const otro of conocidos.values()) {
+              if(otro.id!==plato.id) parejas.set(otro.id, (parejas.get(otro.id) || 0) + 1);
+            }
+            grupo.platos.set(plato.id, (grupo.platos.get(plato.id) || 0) + 1);
+            if(typeof plato.preparacionFacil === 'boolean') preparaciones.add(plato.preparacionFacil);
             if (plato.tipoPlato) tipos.add(plato.tipoPlato);
           }
           tipos.forEach(tipo => datos.tipos.set(tipo, (datos.tipos.get(tipo) || 0) + 1));
+          preparaciones.forEach(facil => grupo.preparaciones.set(facil, (grupo.preparaciones.get(facil) || 0) + 1));
         }
       }
     }
@@ -1269,7 +1314,16 @@ const Menu = (() => {
     const tipo = (datos.tipos.get(plato.tipoPlato) || 0) / datos.total;
     // Suaviza patrones de un día de la semana cuando hay pocas observaciones.
     const mismoDia = jornada ? (jornada.platos.get(plato.id) || 0) / (jornada.total + 2) : 0;
-    return Math.min(6, 1 + 2*frecuencia + 2*mismoDia + tipo);
+    const diaSemana = Dates.fromISO(contexto.fecha).getDay();
+    const grupo = datos.jornadas?.get(diaSemana===0 || diaSemana===6 ? 'finde' : 'laborable');
+    // Normaliza por comidas observadas: no compara los cinco laborables contra dos días de fin de semana.
+    const suficiente = grupo?.semanas.size>=2;
+    const rutina = suficiente ? (grupo.platos.get(plato.id) || 0) / (grupo.total + 2) : 0;
+    const facilidad = suficiente ? (grupo.preparaciones.get(plato.preparacionFacil) || 0) / (grupo.total + 2) : 0;
+    const aparicionesPareja = datos.parejas?.get(contexto.acompananteId)?.get(plato.id) || 0;
+    const pareja = aparicionesPareja>=2
+      ? aparicionesPareja / ((datos.platos.get(contexto.acompananteId) || 0) + 2) : 0;
+    return Math.min(6, 1 + 2*frecuencia + 2*mismoDia + tipo + rutina + facilidad + 2*pareja);
   }
 
   function _elegirPlato(candidatos, artsPrioritarios, inventario, contexto) {
@@ -1282,6 +1336,16 @@ const Menu = (() => {
     // El stock prioritario conserva precedencia; los hábitos deciden entre opciones equivalentes.
     const prioridad = Math.max(...puntuados.map(item => item.prioridad));
     const opciones = puntuados.filter(item => item.prioridad === prioridad);
+    const datos = contexto?.modelo?.perfiles[contexto.perfil]?.[contexto.momento];
+    const habituales = datos?.semanas.size>=2
+      ? opciones.filter(item => datos.platos.has(item.plato.id)) : [];
+    if(habituales.length && habituales.length<opciones.length){
+      const total = opciones.reduce((sum,item) => sum+item.peso,0);
+      const totalHabituales = habituales.reduce((sum,item) => sum+item.peso,0);
+      // Reserva variedad sin que un catálogo grande de platos no observados diluya toda la rutina.
+      for(const item of opciones) item.peso = 0.2*item.peso/total
+        + (datos.platos.has(item.plato.id) ? 0.8*item.peso/totalHabituales : 0);
+    }
     let sorteo = Math.random() * opciones.reduce((total, item) => total + item.peso, 0);
     for (const opcion of opciones) {
       sorteo -= opcion.peso;
@@ -1660,6 +1724,9 @@ const Menu = (() => {
   }
 
   function _bindPaso2(){
+    document.getElementById('menu-bebe-solo-cenas')?.addEventListener('change',e=>{
+      _menuEnCurso.bebeSoloCenasLaborables=e.target.checked;
+    });
     document.getElementById('menu-paso2-next')?.addEventListener('click',()=>{
       _menuEnCurso.dias=[];
       document.querySelectorAll('.menu-dia-esp-select').forEach(sel=>{
