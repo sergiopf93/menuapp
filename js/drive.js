@@ -70,7 +70,7 @@ const Drive = (() => {
     const fileId = await _getFileId(fileName, _cache.rootFolderId);
     if (!fileId) return null;
 
-    const token = Auth.getAccessToken();
+    const token = await _token();
     const res = await fetch(`${BASE_URL}/files/${fileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -148,7 +148,7 @@ const Drive = (() => {
    * @returns {Promise<object>}
    */
   async function readMenuJson(fileId) {
-    const token = Auth.getAccessToken();
+    const token = await _token();
     const res = await fetch(`${BASE_URL}/files/${fileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -166,7 +166,7 @@ const Drive = (() => {
     const fileId = _cache.fileIds[fileName];
     if (!fileId) return false;
 
-    const token = Auth.getAccessToken();
+    const token = await _token();
     const res = await fetch(`${BASE_URL}/files/${fileId}?fields=modifiedTime`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -193,10 +193,10 @@ const Drive = (() => {
 
   /**
    * Obtiene el token de acceso o lanza un error si no hay sesión.
-   * @returns {string}
+   * @returns {Promise<string>}
    */
-  function _token() {
-    const t = Auth.getAccessToken();
+  async function _token() {
+    const t = Auth.ensureAccessToken ? await Auth.ensureAccessToken() : Auth.getAccessToken();
     if (!t) throw new Error('Sin sesión activa. Por favor, vuelve a iniciar sesión.');
     return t;
   }
@@ -210,7 +210,7 @@ const Drive = (() => {
   async function _ensureFolder(name, parentId) {
     // Busca si ya existe
     const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
-    const token = _token();
+    const token = await _token();
 
     const res = await fetch(`${BASE_URL}/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -250,7 +250,7 @@ const Drive = (() => {
     if (_cache.fileIds[fileName]) return _cache.fileIds[fileName];
 
     const q = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
-    const token = _token();
+    const token = await _token();
 
     const res = await fetch(
       `${BASE_URL}/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)`,
@@ -275,7 +275,7 @@ const Drive = (() => {
    * @returns {Promise<string>} - ID del fichero creado
    */
   async function _createFile(name, blob, parentId) {
-    const token = _token();
+    const token = await _token();
     const metadata = { name, parents: [parentId] };
 
     const form = new FormData();
@@ -302,7 +302,7 @@ const Drive = (() => {
    * @returns {Promise<string>} - ID del fichero
    */
   async function _updateFile(fileId, blob) {
-    const token = _token();
+    const token = await _token();
     const res = await fetch(`${UPLOAD_URL}/files/${fileId}?uploadType=media&fields=id,modifiedTime`, {
       method: 'PATCH',
       headers: {
@@ -329,7 +329,7 @@ const Drive = (() => {
    */
   async function _listFiles(folderId, mimeType) {
     if (!folderId) return [];
-    const token = _token();
+    const token = await _token();
     const q = `'${folderId}' in parents and mimeType='${mimeType}' and trashed=false`;
     const files = [];
     let pageToken = '';
@@ -357,7 +357,7 @@ const Drive = (() => {
    */
   async function _updateEtag(fileId, fileName) {
     try {
-      const token = _token();
+      const token = await _token();
       const res = await fetch(`${BASE_URL}/files/${fileId}?fields=modifiedTime`, {
         headers: { Authorization: `Bearer ${token}` },
       });

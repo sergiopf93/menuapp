@@ -1,6 +1,6 @@
 /**
  * MenuApp — Módulo de autenticación
- * Gestiona el flujo OAuth 2.0 con Google usando el Identity Services SDK.
+ * Gestiona la sesión del servidor; conserva Identity Services para GitHub Pages.
  *
  * IMPORTANTE: Sustituye GOOGLE_CLIENT_ID por tu Client ID real de Google Cloud Console.
  *
@@ -28,6 +28,48 @@ const Auth = (() => {
   let _tokenClient = null;
   let _initPromise = null;
   let _rejectLogin = null;
+  const _serverAuth = globalThis.MENUAPP_SERVER_AUTH === true;
+  let _refreshPromise = null;
+  let _sessionVersion = 0;
+  let _loggedOut = false;
+
+  async function _serverRequest(path) {
+    return fetch(path, {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'X-MenuApp-Request': '1' }, signal: AbortSignal.timeout(10000),
+    });
+  }
+
+  async function ensureAccessToken() {
+    if (!_serverAuth || getAccessToken()) return getAccessToken();
+    if (_loggedOut || (typeof navigator !== 'undefined' && !navigator.onLine)) return null;
+    if (_refreshPromise) return _refreshPromise;
+    const version = _sessionVersion;
+    _refreshPromise = (async () => {
+      const response = await _serverRequest('/auth/session');
+      if (version !== _sessionVersion) return null;
+      if (response.status === 401) {
+        _accessToken = null;
+        _tokenExpiry = null;
+        return null;
+      }
+      if (!response.ok) throw new Error('No se pudo renovar la conexión con Google. Se reintentará automáticamente.');
+      const data = await response.json();
+      if (version !== _sessionVersion) return null;
+      if (!data.accessToken || !Number.isFinite(data.tokenExpiry) || data.tokenExpiry <= Date.now() + 60000 || !data.userInfo?.sub) {
+        throw new Error('La sesión recibida no es válida.');
+      }
+      _accessToken = data.accessToken;
+      _tokenExpiry = data.tokenExpiry;
+      _userInfo = data.userInfo;
+      // Persiste únicamente el perfil; los tokens de servidor no se guardan en IndexedDB.
+      await Storage.set('auth_session', { userInfo: _userInfo });
+      return _accessToken;
+    })().finally(() => { _refreshPromise = null; });
+    return _refreshPromise;
+  }
+
+  function usesServerSession() { return _serverAuth; }
 
   // ── API pública ──────────────────────────────────────────────────
 
@@ -38,6 +80,7 @@ const Auth = (() => {
    * @returns {Promise<void>}
    */
   async function init() {
+    if (_serverAuth) return;
     if (_tokenClient) return;
     if (_initPromise) return _initPromise;
     _initPromise = new Promise((resolve, reject) => {
@@ -84,6 +127,7 @@ const Auth = (() => {
 
       const { accessToken, tokenExpiry, userInfo } = stored;
       _userInfo = userInfo || null;
+      if (_serverAuth) return false;
       if (!accessToken || !tokenExpiry) return false;
 
       // Conserva el perfil para usar la app localmente aunque toque reconectar.
@@ -105,6 +149,16 @@ const Auth = (() => {
    * @returns {Promise<void>}
    */
   async function login() {
+    if (_serverAuth) {
+      _loggedOut = false;
+      if (await ensureAccessToken()) return true;
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/auth/login';
+      document.body.appendChild(form);
+      form.submit();
+      return false; // La navegación termina esta sesión de la página.
+    }
     if (!_tokenClient) throw new Error('Auth no inicializado. Llama a Auth.init() primero.');
 
     return new Promise((resolve, reject) => {
@@ -121,17 +175,33 @@ const Auth = (() => {
         }
       };
 
-      // prompt: '' = sin popup si ya hay sesión; 'consent' = fuerza selección de cuenta
+      // Reutiliza el consentimiento previo; el flujo del navegador sigue requiriendo interacción.
       _tokenClient.requestAccessToken({ prompt: '' });
     });
   }
 
   /**
    * Cierra la sesión del usuario.
-   * Revoca el token en Google y limpia el estado local.
+   * Invalida la sesión del dispositivo; en modo estático revoca el token de Google.
    * @returns {Promise<void>}
    */
   async function logout() {
+    if (_serverAuth) {
+      _sessionVersion++;
+      _loggedOut = true;
+      try {
+        const response = await _serverRequest('/auth/logout');
+        if (!response.ok) throw new Error('No se pudo cerrar la sesión. Vuelve a intentarlo con conexión.');
+      } catch (err) {
+        _loggedOut = false;
+        throw err;
+      }
+      _accessToken = null;
+      _tokenExpiry = null;
+      _userInfo = null;
+      await Storage.remove('auth_session');
+      return;
+    }
     if (_accessToken && typeof google !== 'undefined') {
       google.accounts?.oauth2?.revoke(_accessToken, () => {});
     }
@@ -208,6 +278,6 @@ const Auth = (() => {
   }
 
   // ── Export ───────────────────────────────────────────────────────
-  return { init, tryRestoreSession, login, logout, getAccessToken, getUserInfo, isAuthenticated };
+  return { init, tryRestoreSession, login, logout, getAccessToken, getUserInfo, isAuthenticated, ensureAccessToken, usesServerSession };
 
 })();

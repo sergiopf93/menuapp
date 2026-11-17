@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '../service-worker.js'), 'ut
 const base = 'https://example.com/otra-ruta/';
 const urlOf = request => typeof request === 'string' ? request : request.url;
 
-function setup() {
+function setup(scope = base) {
   const listeners = new Map();
   const stores = new Map();
   const precached = [];
@@ -41,8 +41,8 @@ function setup() {
     URL, Response, Request, caches,
     fetch: request => network(request),
     self: {
-      location: new URL(`${base}service-worker.js`),
-      registration: { scope: base },
+      location: new URL(`${scope}service-worker.js`),
+      registration: { scope },
       addEventListener: (type, callback) => listeners.set(type, callback),
       skipWaiting() {},
       clients: { claim: async () => {} },
@@ -142,5 +142,13 @@ test('el worker no intercepta POST, otros orígenes ni rutas fuera de la aplicac
   ];
   for (const request of requests) {
     assert.equal(await h.dispatch('fetch', request), undefined);
+  }
+});
+
+test('el service worker nunca intercepta ni almacena respuestas de autenticación', async () => {
+  const h = setup('https://example.com/');
+  for (const name of ['session','callback?code=secret','login','logout']) {
+    const res = await h.dispatch('fetch', new Request('https://example.com/auth/' + name));
+    assert.equal(res, undefined);
   }
 });

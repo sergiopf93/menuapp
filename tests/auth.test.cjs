@@ -118,3 +118,78 @@ test('cerrar una sesión restaurada limpia el dispositivo aunque el SDK no esté
   assert.equal(h.Auth.getUserInfo(), null);
   assert.equal(h.stored.has('auth_session'), false);
 });
+
+function serverSetup(session) {
+  const stored = new Map(session ? [['auth_session', session]] : []);
+  const calls = [];
+  let handler = async () => Response.json({ accessToken: 'server-access', tokenExpiry: Date.now() + 3600000,
+    userInfo: { ...user, sub: 'google-user' } });
+  const context = {
+    MENUAPP_SERVER_AUTH: true, AbortSignal, navigator: { onLine: true },
+    Storage: { get: async k => stored.get(k), set: async (k,v) => stored.set(k,v), remove: async k => stored.delete(k) },
+    fetch: async (...args) => { calls.push(args); return handler(...args); },
+    document: { createElement: () => ({ submit() { calls.push(['submit']); } }), body: { appendChild() {} } },
+  };
+  vm.createContext(context);
+  vm.runInContext(`${source}\nthis.Auth=Auth;`, context);
+  return { ...context, calls, stored, handle: fn => { handler = fn; } };
+}
+
+test('servidor restaura automáticamente sin SDK, popup ni token persistido', async () => {
+  const h = serverSetup({ accessToken: 'old', tokenExpiry: Date.now() + 3600000, userInfo: user });
+  await h.Auth.init();
+  assert.equal(await h.Auth.tryRestoreSession(), false);
+  assert.equal(await h.Auth.ensureAccessToken(), 'server-access');
+  assert.equal(h.calls[0][0], '/auth/session');
+  assert.equal(h.calls[0][1].credentials, 'same-origin');
+  assert.equal(h.calls[0][1].cache, 'no-store');
+  assert.deepEqual(Object.keys(h.stored.get('auth_session')), ['userInfo']);
+});
+
+test('peticiones concurrentes comparten la renovación y reutilizan acceso vigente', async () => {
+  const h = serverSetup();
+  const tokens = await Promise.all([h.Auth.ensureAccessToken(),h.Auth.ensureAccessToken(),h.Auth.ensureAccessToken()]);
+  assert.deepEqual(tokens, ['server-access','server-access','server-access']);
+  assert.equal(h.calls.length, 1);
+  await h.Auth.ensureAccessToken();
+  assert.equal(h.calls.length, 1);
+});
+
+test('sin conexión conserva el perfil y no intenta abrir Google', async () => {
+  const h = serverSetup({ userInfo: user }); h.navigator.onLine = false;
+  await h.Auth.tryRestoreSession();
+  assert.equal(await h.Auth.ensureAccessToken(), null);
+  assert.equal(h.Auth.getUserInfo().email, user.email);
+  assert.equal(h.calls.length, 0);
+});
+
+test('error temporal permite reintentar y 401 no inicia login automático', async () => {
+  const h = serverSetup();
+  h.handle(async () => Response.json({}, { status: 503 }));
+  await assert.rejects(h.Auth.ensureAccessToken(), /renovar/);
+  h.handle(async () => Response.json({}, { status: 401 }));
+  assert.equal(await h.Auth.ensureAccessToken(), null);
+  assert.equal(h.calls.length, 2);
+  assert.equal(await h.Auth.login(), false);
+  assert.equal(h.calls.at(-1)[0], 'submit');
+});
+
+test('respuesta de renovación tardía no resucita una sesión cerrada', async () => {
+  const h = serverSetup(); let release;
+  h.handle(async path => path === '/auth/logout' ? Response.json({ ok: true })
+    : new Promise(resolve => { release = () => resolve(Response.json({ accessToken: 'late', tokenExpiry: Date.now() + 3600000, userInfo: { ...user, sub: 'user' } })); }));
+  const pending = h.Auth.ensureAccessToken();
+  await h.Auth.logout(); release();
+  assert.equal(await pending, null);
+  assert.equal(h.Auth.getAccessToken(), null);
+  assert.equal(await h.Auth.ensureAccessToken(), null);
+  assert.equal(h.stored.has('auth_session'), false);
+});
+
+test('logout fallido no afirma cerrar la sesión y permite reintentar', async () => {
+  const h = serverSetup();
+  await h.Auth.ensureAccessToken();
+  h.handle(async () => Response.json({}, { status: 503 }));
+  await assert.rejects(h.Auth.logout(), /cerrar/);
+  assert.equal(h.Auth.isAuthenticated(), true);
+});

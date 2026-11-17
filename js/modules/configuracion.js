@@ -818,9 +818,11 @@ const Configuracion = (() => {
     document.getElementById('cfg-btn-logout')?.addEventListener('click',async()=>{
       const ok=await UI.confirm('¿Cerrar sesión? Los datos permanecen en Google Drive.','Cerrar sesión');
       if(!ok) return;
-      await Auth.logout();
-      await Storage.clear();
-      location.reload();
+      try {
+        await Auth.logout();
+        await Storage.clear();
+        location.reload();
+      } catch (err) { UI.showToast(err.message, 'warning'); }
     });
 
     // Guardar API key Gemini

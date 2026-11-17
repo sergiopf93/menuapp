@@ -1,10 +1,11 @@
 # MenuApp
 
-PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin framework, con caché local y sincronización mediante Google Drive. Publicación existente en GitHub Pages.
+PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin framework, con caché local y sincronización mediante Google Drive. Publicación existente en GitHub Pages y despliegue de servidor preparado en Cloudflare Workers.
 
 ## Uso
 
-- Inicio abre con los datos locales. Una sesión de Google vigente sincroniza en segundo plano; si caduca, **Conectar con Google** permite renovar la autorización sin bloquear el uso local.
+- Inicio abre con los datos locales. En Cloudflare, tras autorizar Google una primera vez, recupera y renueva automáticamente la sesión sin pulsar Conectar; reintenta al volver a la app o recuperar la red. La sesión del dispositivo dura hasta 90 días, salvo revocación o restricciones de Google. Cerrar sesión impide la recuperación automática. En GitHub Pages se mantiene la conexión manual al caducar el token.
+- La activación en Cloudflare requiere configurar el cliente OAuth existente: [sesión persistente y migración](docs/sesion-google.md).
 - **Más** abre Artículos, Historial y Configuración.
 - **Menú** muestra solo la semana actual (desde el lunes) y las futuras disponibles. El selector permite editar cualquiera de los menús visibles, incluidas sus semanas si abarcan más de una.
 - Los calendarios de Inicio, Menú y edición mantienen filas de altura fija, alineadas con la cabecera y la columna izquierda. Solo se desplazan horizontalmente; el gesto vertical mueve la página. Los nombres que exceden la altura fija se recortan visualmente y se conservan completos en el selector de platos del editor.
@@ -20,7 +21,7 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 
 ## Desarrollo local
 
-No requiere instalación de dependencias ni compilación:
+El frontend estático no requiere instalación de dependencias ni compilación:
 
 ```sh
 python3 -m http.server 8080 --bind 127.0.0.1
@@ -30,7 +31,7 @@ Abrir `http://127.0.0.1:8080`. Para probar OAuth real, este origen debe estar au
 
 ## Pruebas
 
-Node.js 22 o posterior:
+Node.js 22.13 o posterior (las pruebas del servidor utilizan SQLite integrado):
 
 ```sh
 node --test tests/*.test.cjs
@@ -44,7 +45,7 @@ PLAYWRIGHT_MODULE=/ruta/a/node_modules/playwright node tests/browser.cjs
 
 Si `playwright` está disponible en la resolución normal de Node, basta `node tests/browser.cjs`. Las capturas se guardan en la carpeta temporal del sistema, dentro de `menuapp-qa`; puede elegirse otra carpeta con `MENUAPP_QA_OUTPUT`. `MENUAPP_BROWSER_CHANNEL` permite cambiar el canal instalado de navegador.
 
-Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Verifican el filtrado de semanas, el orden del historial, la edición y guardado de menús pasados/futuros, la cancelación y el reintento de errores. También verifican una recarga offline real con Service Worker e IndexedDB. No autorizan ni escriben en el Drive personal.
+Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Verifican el filtrado de semanas, el orden del historial, la edición y guardado de menús pasados/futuros, la cancelación y el reintento de errores. También verifican una recarga offline real con Service Worker e IndexedDB. También comprueban restauración de sesión de servidor, recuperación tras fallo temporal, recarga y cierre con respuestas simuladas. Los tests de backend verifican OAuth, renovación, cifrado, caducidad y protección CSRF. No autorizan ni escriben en el Drive personal.
 
 ## Contexto y revisión
 

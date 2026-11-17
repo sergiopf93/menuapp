@@ -348,6 +348,53 @@ let server;
     console.log(`PASS filas fijas y alineadas, scroll horizontal y gesto vertical en página: ${viewport.width}px, Inicio/Menú/edición, con y sin bebé`);
   }
   assert.deepEqual(errors, []);
+  // Sesión persistente: arranque, fallo temporal, reentrada y cierre sin SDK ni popup.
+  const authContext = await browser.newContext({ serviceWorkers: 'block' });
+  const authPage = await authContext.newPage();
+  const authErrors = [];
+  authPage.on('pageerror', error => authErrors.push(error.message));
+  await authPage.route('https://**/*', route => route.abort());
+  await authPage.route('**/js/auth-config.js', route => route.fulfill({
+    contentType: 'text/javascript', body: 'globalThis.MENUAPP_SERVER_AUTH = true;',
+  }));
+  let sessionCalls = 0, loggedOut = false;
+  await authPage.route('**/auth/session', async route => {
+    sessionCalls++;
+    await route.fulfill({ status: loggedOut ? 401 : sessionCalls === 1 ? 503 : 200,
+      contentType: 'application/json', body: JSON.stringify({ accessToken: 'test-access',
+        tokenExpiry: Date.now() + 3600000, userInfo: { sub: 'test-user', name: 'Prueba', email: 'test@example.com' } }),
+    });
+  });
+  await authPage.route('**/auth/logout', route => {
+    loggedOut = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await authPage.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+    Drive.initFolderStructure = async () => ({});
+    window.testSyncs = 0;
+    Sync.syncNow = async () => { window.testSyncs++; return true; };
+  }));
+  await authPage.goto(origin);
+  await authPage.locator('#screen-app.active').waitFor();
+  await authPage.waitForFunction(() => !Auth.isAuthenticated());
+  await authPage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+  await authPage.waitForFunction(() => Auth.isAuthenticated() && window.testSyncs > 0);
+  assert.equal(await authPage.locator('script[src*="accounts.google.com"]').count(), 0);
+  const savedSession = await authPage.evaluate(() => Storage.get('auth_session'));
+  assert.deepEqual(Object.keys(savedSession), ['userInfo']);
+  await authPage.reload();
+  await authPage.waitForFunction(() => Auth.isAuthenticated() && window.testSyncs > 0);
+  await authPage.evaluate(async () => {
+    await Auth.logout();
+    window.dispatchEvent(new Event('pageshow'));
+  });
+  assert.equal(await authPage.evaluate(() => Auth.isAuthenticated()), false);
+  await authPage.reload();
+  await authPage.locator('#screen-app.active').waitFor();
+  assert.equal(await authPage.evaluate(() => Auth.isAuthenticated()), false);
+  assert.deepEqual(authErrors, []);
+  console.log('PASS sesión de servidor: recuperación automática, recarga y cierre, sin SDK ni tokens persistidos');
+  await authContext.close();
   // Segunda visita real sin red: JS, CSS, iconos y caché local desde el Service Worker.
   const offlineContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const offlinePage = await offlineContext.newPage();

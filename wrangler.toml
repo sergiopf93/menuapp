@@ -1,0 +1,30 @@
+name = "menuapp"
+main = "backend/worker.mjs"
+compatibility_date = "2026-11-17"
+workers_dev = true
+
+[build]
+command = "node scripts/build-worker.mjs"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = ["/auth/*"]
+
+[vars]
+APP_ORIGIN = "https://menuapp.sergio-pf93-794.workers.dev"
+GOOGLE_CLIENT_ID = "239981851235-35btnur92qg9to032gtvn8guocodpfph.apps.googleusercontent.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "menuapp-auth"
+database_id = "325a7dc4-2e96-4ff5-ba27-9f2a0e860e2f"
+migrations_dir = "backend/migrations"
+
+[triggers]
+crons = ["17 3 * * *"]
+
+# GOOGLE_CLIENT_SECRET y SESSION_ENCRYPTION_KEY se configuran como secretos.
+# La observabilidad queda desactivada para no registrar URLs OAuth con códigos.
+[observability]
+enabled = false

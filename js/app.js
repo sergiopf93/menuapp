@@ -46,7 +46,21 @@ const App = (() => {
     _abrirApp();
     // El SDK solo se necesita para renovar la autorización, nunca para abrir Inicio.
     Auth.init().catch(err => console.warn('[Auth]', err.message));
-    if (Auth.isAuthenticated() && navigator.onLine) _sincronizarDriveBackground();
+    if (Auth.usesServerSession?.()) _restaurarSesionServidor();
+    else if (Auth.isAuthenticated() && navigator.onLine) _sincronizarDriveBackground();
+  }
+
+  let _restaurandoSesion = false;
+  async function _restaurarSesionServidor() {
+    if (_restaurandoSesion || _conectando || !navigator.onLine) return;
+    _restaurandoSesion = true;
+    try {
+      if (await Auth.ensureAccessToken()) {
+        state.usuario = Auth.getUserInfo();
+        await _sincronizarDriveBackground();
+      }
+    } catch (err) { console.warn('[Auth]', err.message); }
+    finally { _restaurandoSesion = false; _renderDriveStatus(); }
   }
 
   function _abrirApp() {
@@ -60,10 +74,25 @@ const App = (() => {
       UI.maybeShowPWABanner();
       _scheduleNotificationCheck();
       window.addEventListener('online', () => {
-        if (Auth.isAuthenticated()) _sincronizarDriveBackground();
+        if (Auth.usesServerSession?.()) _restaurarSesionServidor();
+        else if (Auth.isAuthenticated()) _sincronizarDriveBackground();
         _renderDriveStatus();
       });
       window.addEventListener('offline', _renderDriveStatus);
+      if (Auth.usesServerSession?.()) {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') _restaurarSesionServidor();
+        });
+        window.addEventListener('pageshow', () => _restaurarSesionServidor());
+        setInterval(() => {
+          if (document.visibilityState === 'visible' && !Auth.isAuthenticated()) _restaurarSesionServidor();
+        }, 60000);
+        const error = new URL(location.href).searchParams.get('auth_error');
+        if (error) {
+          UI.showToast(error === 'cancelled' ? 'Conexión con Google cancelada.' : 'No se pudo conectar con Google. Revisa la configuración o vuelve a intentarlo.', 'warning', 6000);
+          history.replaceState(null, '', location.pathname);
+        }
+      }
     }
     navigate('dashboard');
   }
@@ -78,7 +107,7 @@ const App = (() => {
     try {
       if (!Auth.isAuthenticated()) {
         await Auth.init();
-        await Auth.login();
+        if (await Auth.login() === false) return;
         state.usuario = Auth.getUserInfo();
       }
       return await _sincronizarDriveBackground({ silent: false });
@@ -422,9 +451,11 @@ const App = (() => {
             label: 'Cerrar sesión',
             type: 'danger',
             onClick: async () => {
-              await Auth.logout();
-              await Storage.clear();
-              location.reload();
+              try {
+                await Auth.logout();
+                await Storage.clear();
+                location.reload();
+              } catch (err) { UI.showToast(err.message, 'warning'); }
             },
           },
         ],

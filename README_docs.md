@@ -1,3 +1,5 @@
+> Para el acceso automático sin botón consulta [Sesión persistente en Cloudflare](docs/sesion-google.md). Esta guía conserva el despliegue estático original de GitHub Pages.
+
 # MenuApp — Guía de construcción paso a paso
 
 > Aplicación web familiar para gestionar menús, despensa y lista de la compra.  

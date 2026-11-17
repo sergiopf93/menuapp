@@ -7,7 +7,7 @@ const OFFLINE_URLS = [
   'css/main.css', 'css/components/menu.css', 'css/components/compra.css',
   'css/components/inventario.css', 'css/components/platos.css', 'css/components/configuracion.css',
   'js/utils/storage.js', 'js/utils/dates.js', 'js/utils/ui.js',
-  'js/auth.js', 'js/drive.js', 'js/sync.js', 'js/app.js',
+  'js/auth-config.js', 'js/auth.js', 'js/drive.js', 'js/sync.js', 'js/app.js',
   'js/modules/notificaciones.js', 'js/modules/articulos.js', 'js/modules/inventario.js',
   'js/modules/platos.js', 'js/modules/menu.js', 'js/modules/compra.js',
   'js/modules/historial.js', 'js/modules/configuracion.js', 'data/supermercados.json',
@@ -30,6 +30,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
+  if (url.pathname.startsWith('/auth/')) return;
   if (request.method !== 'GET' || url.origin !== APP_URL.origin ||
       !url.pathname.startsWith(APP_URL.pathname)) return;
 
