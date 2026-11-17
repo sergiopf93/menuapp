@@ -337,14 +337,14 @@ const Sync = (() => {
     if (!_canSync()) return false;
     let descargado = true;
     const state = App.getState();
-    for (const fileName of Object.keys(WATCHED)) {
+    await Promise.all(Object.keys(WATCHED).map(async fileName => {
       try {
-        if (_pendientes[fileName]) continue;
+        if (_pendientes[fileName]) return;
         const revision = getRevision(fileName);
         const changed = forzar || await Drive.hasChanged(fileName);
-        if (!changed || _pendientes[fileName] || getRevision(fileName) !== revision) continue;
+        if (!changed || _pendientes[fileName] || getRevision(fileName) !== revision) return;
         const newData = await Drive.readJson(fileName);
-        if (!newData) continue;
+        if (!newData) return;
 
         await _queue(fileName, async () => {
           if (_pendientes[fileName] || getRevision(fileName) !== revision) return;
@@ -362,7 +362,7 @@ const Sync = (() => {
         descargado = false;
         console.warn(`[Sync] Error en poll ${fileName}:`, e.message);
       }
-    }
+    }));
     return descargado;
   }
 

@@ -26,11 +26,12 @@ function setup({ menus = [], platos = [], config = {} } = {}) {
     },
     document: { getElementById: () => null },
     setTimeout: callback => { callback(); return 0; },
+    clearTimeout() {},
   };
   const source = menuSource
     .replace('_paso=5; _renderAsistente();', '_paso=5;')
     .replace('return { render, getCalendarioHTML, editar };', `return {
-      history: _buildUsadosReciente, load: _cargarHistorialReciente,
+      getCalendarioHTML, history: _buildUsadosReciente, load: _cargarHistorialReciente,
       consumed: _calcularConsumidosAntesDel, filter: _filtrarMayores,
       second: _elegirSegundoMayores, register: _registrarMayor,
       generate: _generarMenu, setMenu: menu => { _menuEnCurso=menu; },
@@ -350,4 +351,19 @@ test('guardar una edición activa actualiza el estado y evita escrituras concurr
   await first;
   assert.equal(h.writes.length, 1);
   assert.equal(h.state.menuActual.dias[0].comida.platosMayores[0].id, 'nuevo');
+});
+
+
+test('Inicio comparte lecturas concurrentes y vuelve a consultar en la siguiente carga', async () => {
+  const h = setup();
+  let listings = 0, release;
+  const pending = new Promise(resolve => { release = resolve; });
+  h.Drive.listMenuFiles = () => { listings++; return pending; };
+  const first = h.engine.getCalendarioHTML();
+  const second = h.engine.getCalendarioHTML();
+  assert.equal(listings, 1);
+  release([]);
+  await Promise.all([first, second]);
+  await h.engine.getCalendarioHTML();
+  assert.equal(listings, 2);
 });

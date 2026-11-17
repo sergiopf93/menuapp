@@ -19,6 +19,10 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 - Al combinar la lista se conserva la edición más reciente de cada artículo, incluidas reducciones de cantidad. Los datos antiguos sin fecha o con igual fecha conservan la cantidad mayor. Las marcas de retirada impiden recuperar copias anteriores de artículos eliminados.
 - Historial → **Analizar hábitos** describe los menús anteriores a hoy, agrupados de lunes a domingo, por plato, perfil y comida/cena. Distingue semanas completas y parciales, compara intervalos observados y configuración, y permite exportar un JSON con las fuentes. Describe planificación; no confirma consumo ni modifica automáticamente los platos.
 
+## Carga de datos
+
+Los cuatro archivos principales de Drive se descargan en paralelo y se aplican al estar disponibles, manteniendo la protección de cambios locales pendientes. Menú lee los archivos en grupos de hasta cuatro y conserva el orden del listado. Inicio comparte las lecturas de calendario que coinciden durante la sincronización, evitando solicitudes duplicadas; una carga posterior vuelve a consultar Drive.
+
 ## Desarrollo local
 
 El frontend estático no requiere instalación de dependencias ni compilación:

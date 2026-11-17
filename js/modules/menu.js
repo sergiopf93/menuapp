@@ -18,6 +18,7 @@ const Menu = (() => {
   let _edicion = null;
   let _guardando = false;
   let _cargaVista = 0;
+  let _cargaDashboard = null;
 
   // ── Reglas alimenticias (OMS / guía nutricional) ─────────────────
   // Seguimiento semanal por grupo alimenticio
@@ -60,14 +61,23 @@ const Menu = (() => {
     if (state.menuActual) {
       todosMenus = [state.menuActual];
     } else {
-      try {
-        const timeoutPromise = new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')),5000));
-        const drivePromise = Drive.listMenuFiles().catch(()=>[]);
-        const menusEnDrive = await Promise.race([drivePromise, timeoutPromise]).catch(()=>[]);
-        for (const f of menusEnDrive.slice(0,3)) {
-          try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push(m); } catch{}
-        }
-      } catch { todosMenus = []; }
+      // Las actualizaciones de catálogo/configuración pueden repintar Inicio a la vez.
+      // Comparten la lectura en curso, sin conservar una caché remota obsoleta.
+      if (!_cargaDashboard) {
+        _cargaDashboard = (async () => {
+          let timer;
+          try {
+            const timeout = new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error('timeout')), 5000);
+            });
+            const files = await Promise.race([Drive.listMenuFiles(), timeout]);
+            return (await Promise.all(files.slice(0, 3)
+              .map(f => Drive.readMenuJson(f.id).catch(() => null)))).filter(Boolean);
+          } catch { return []; }
+          finally { clearTimeout(timer); }
+        })().finally(() => { _cargaDashboard = null; });
+      }
+      todosMenus = await _cargaDashboard;
     }
 
     const todosDias = _combinarDiasDeMenus(todosMenus);
@@ -98,8 +108,16 @@ const Menu = (() => {
     const hoy = Dates.today();
     const menusEnDrive = await Drive.listMenuFiles().catch(()=>[]);
     const todosMenus = [];
-    for (const f of menusEnDrive) {
-      try { const m=await Drive.readMenuJson(f.id); if(m) todosMenus.push({ ...m, _fileId: f.id, _fileName: f.name }); } catch{}
+    // Limita la concurrencia y conserva el orden del listado y el archivo original.
+    for (let i = 0; i < menusEnDrive.length; i += 4) {
+      if (carga !== _cargaVista || _paso !== 0) return;
+      const lote = await Promise.all(menusEnDrive.slice(i, i + 4).map(async f => {
+        try {
+          const m = await Drive.readMenuJson(f.id);
+          return m ? { ...m, _fileId: f.id, _fileName: f.name } : null;
+        } catch { return null; }
+      }));
+      todosMenus.push(...lote.filter(Boolean));
     }
     if (carga !== _cargaVista || _paso !== 0) return;
     const menuActivo = todosMenus

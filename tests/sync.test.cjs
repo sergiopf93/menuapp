@@ -285,3 +285,20 @@ test('una sincronización forzada espera al poll en curso y luego fuerza su desc
   assert.equal(h.state.inventario.version, 1);
   h.Sync.stop();
 });
+
+
+test('descarga archivos independientes en paralelo y publica cada uno sin esperar al más lento', async () => {
+  const h = setup();
+  const slow = deferred();
+  const requested = [];
+  h.Drive.readJson = async name => {
+    requested.push(name);
+    return name === 'catalogo.json' ? slow.promise : { archivo: name };
+  };
+  const syncing = h.Sync.syncNow({ silent: true });
+  await flush();
+  assert.equal(requested.length, 4);
+  assert.equal(h.App.getState().inventario.archivo, 'inventario.json');
+  slow.resolve({ archivo: 'catalogo.json' });
+  assert.equal(await syncing, true);
+});
