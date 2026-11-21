@@ -126,6 +126,8 @@ const Dates = (() => {
 
     const overlay = document.createElement('div');
     overlay.className = 'dp-overlay';
+    const close = () => { overlay.remove(); release(); };
+    let release = () => {};
 
     function render() {
       const todayISO = toISO(new Date());
@@ -183,7 +185,7 @@ const Dates = (() => {
       // eventos
       overlay.querySelector('#dp-prev').onclick = ()=>{ viewMonth--; if(viewMonth<0){viewMonth=11;viewYear--;} render(); };
       overlay.querySelector('#dp-next').onclick = ()=>{ viewMonth++; if(viewMonth>11){viewMonth=0;viewYear++;} render(); };
-      overlay.querySelector('#dp-cancel').onclick = ()=>{ overlay.remove(); };
+      overlay.querySelector('#dp-cancel').onclick = ()=>{ close(); };
       overlay.querySelector('#dp-hoy').onclick = ()=>{
         const now=new Date();
         viewYear=now.getFullYear(); viewMonth=now.getMonth();
@@ -192,15 +194,17 @@ const Dates = (() => {
       overlay.querySelectorAll('.dp-day:not(.dp-disabled)').forEach(cell=>{
         cell.onclick = ()=>{
           selected=cell.dataset.iso;
-          overlay.remove();
+          close();
           if(onSelect) onSelect(selected);
         };
       });
-      overlay.onclick = (e)=>{ if(e.target===overlay) overlay.remove(); };
+      overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
     }
 
     render();
     document.body.appendChild(overlay);
+    release = UI.attachOverlay(overlay, close);
+    overlay.querySelector('#dp-next').focus({ preventScroll: true });
   }
 
   return {

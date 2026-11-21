@@ -302,7 +302,6 @@ const Inventario = (() => {
     const item = id?(state.inventario||[]).find(i=>i.id===id):null;
     const container = document.createElement('div');
     container.innerHTML = _buildForm(item);
-    _initFormEvents();
     UI.showModal({
       title: item?`Editar — ${item.nombre}`:'Añadir artículo',
       content: container,
@@ -311,7 +310,7 @@ const Inventario = (() => {
         {label:item?'Guardar cambios':'Añadir',type:'primary',onClick:()=>_submitForm(item)},
       ],
     });
-    setTimeout(()=>_initFormEvents(),100);
+    _initFormEvents();
   }
 
   function _buildForm(item) {
@@ -391,16 +390,15 @@ const Inventario = (() => {
     if (!catInput||!catSugg) return;
     catInput.addEventListener('input',()=>{
       const val = Sync.normalize(catInput.value);
-      if (!val) { catSugg.classList.add('hidden'); return; }
+      if (!val) { UI.hideSuggestions(); return; }
       const matches = CATEGORIAS.filter(c=>Sync.normalize(c).includes(val));
-      if (!matches.length) { catSugg.classList.add('hidden'); return; }
+      if (!matches.length) { UI.hideSuggestions(); return; }
       catSugg.innerHTML = matches.map(c=>`<div class="categoria-option" data-v="${UI.escapeHtml(c)}">${UI.escapeHtml(c)}</div>`).join('');
-      catSugg.classList.remove('hidden');
+      UI.showSuggestions(catInput, catSugg);
       catSugg.querySelectorAll('.categoria-option').forEach(o=>{
-        o.addEventListener('click',()=>{ catInput.value=o.dataset.v; catSugg.classList.add('hidden'); });
+        o.addEventListener('click',()=>{ catInput.value=o.dataset.v; UI.hideSuggestions(); });
       });
     });
-    document.addEventListener('click',(e)=>{ if(!catInput.contains(e.target)) catSugg.classList.add('hidden'); });
   }
 
   async function _submitForm(itemOriginal) {

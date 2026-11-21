@@ -157,13 +157,14 @@
           if (restoreFocus) moreBtn.focus();
         }
         function positionMore() {
+          const v = UI.viewportBounds();
           const anchor = moreBtn.getBoundingClientRect();
           const menu = moreMenu.getBoundingClientRect();
           const desktop = window.matchMedia('(min-width: 1024px)').matches;
           const left = desktop ? anchor.right + 8 : anchor.right - menu.width;
           const top = desktop ? anchor.top : anchor.top - menu.height - 8;
-          moreMenu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - menu.width - 8))}px`;
-          moreMenu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - menu.height - 8))}px`;
+          moreMenu.style.left = `${Math.max(v.left + 8, Math.min(left, v.right - menu.width - 8))}px`;
+          moreMenu.style.top = `${Math.max(v.top + 8, Math.min(top, v.bottom - menu.height - 8))}px`;
         }
         function openMore(focusFirst) {
           moreMenu.classList.remove('hidden');
@@ -194,9 +195,12 @@
         document.addEventListener('focusin', e => {
           if (!moreBtn.contains(e.target) && !moreMenu.contains(e.target)) _closeMore();
         });
-        window.addEventListener('resize', () => {
+        const repositionMore = () => {
           if (!moreMenu.classList.contains('hidden')) positionMore();
-        });
+        };
+        window.addEventListener('resize', repositionMore);
+        window.visualViewport?.addEventListener('resize', repositionMore);
+        window.visualViewport?.addEventListener('scroll', repositionMore);
       });
     </script>
 

@@ -240,7 +240,7 @@
 }
 
 /* ─── Wrapper del suggestions box ───────────────────────────────── */
-.pl-ing-suggestions {
+.pl-ing-suggestions:not(.floating-suggestions) {
   background: var(--color-surface);
   border: 1.5px solid var(--color-border);
   border-top: none;
@@ -261,3 +261,17 @@
   border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 .compra-sugg-crear:hover { background: var(--color-primary); color: white; }
+
+/* Cubrir también los márgenes del área desplazable, hasta la cabecera. */
+.compra-acciones, .compra-modo-header {
+  top: calc(-1 * var(--content-padding));
+  margin-inline: calc(-1 * var(--content-padding));
+  padding: var(--space-3) var(--content-padding);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 2px 4px rgba(0,0,0,.06);
+}
+.compra-acciones .btn { min-width: 0; white-space: normal; }
+.compra-add-extra > div { min-width: 0; }
+.compra-sugg-nombre { min-width: 0; }
+.compra-sugg-meta { white-space: normal; }

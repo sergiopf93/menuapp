@@ -18,6 +18,14 @@ PWA familiar de menús, platos, despensa y compra. HTML, CSS y JavaScript sin fr
 - Al combinar la lista se conserva la edición más reciente de cada artículo, incluidas reducciones de cantidad. Los datos antiguos sin fecha o con igual fecha conservan la cantidad mayor. Las marcas de retirada impiden recuperar copias anteriores de artículos eliminados.
 - Historial → **Analizar hábitos** describe los menús anteriores a hoy, agrupados de lunes a domingo, por plato, perfil y comida/cena. Distingue semanas completas y parciales, compara intervalos observados y configuración, y permite exportar un JSON con las fuentes. Describe planificación; no confirma consumo ni modifica automáticamente los platos.
 
+## Scroll, teclado y espacios
+
+- Inicio, Menú, Compra, Despensa, Platos, Artículos, Historial y Configuración desplazan su contenido dentro del área entre la cabecera y la navegación. Cambiar de sección abre la nueva vista desde arriba.
+- Las sugerencias de Compra, categorías e ingredientes se colocan arriba o abajo según el espacio visible, incluyendo el teclado. Tienen altura limitada y scroll propio; también admiten flechas, Enter y Escape. Deslizar la lista con el dedo no selecciona un artículo.
+- Los diálogos bloquean el fondo y conservan su posición al cerrar. Su cuerpo se desplaza con el título y las acciones accesibles; el selector de platos usa un único scroll vertical. El selector de fechas y las confirmaciones respetan el bloqueo al abrirse sobre otro diálogo.
+- Los paneles de consulta y días especiales no arrastran la página al llegar al extremo. Calendarios, pestañas de Despensa y tablas de Historial mantienen el desplazamiento horizontal local; el gesto vertical sigue desplazando su página o diálogo.
+- Las acciones de Compra y Modo compra tienen una franja blanca opaca que cubre también los márgenes. En pantallas estrechas, las cabeceras permiten envolver los botones sin desbordar la página.
+
 ## Desarrollo local
 
 No requiere instalación de dependencias ni compilación:
@@ -43,6 +51,8 @@ PLAYWRIGHT_MODULE=/ruta/a/node_modules/playwright node tests/browser.cjs
 ```
 
 Si `playwright` está disponible en la resolución normal de Node, basta `node tests/browser.cjs`. Las capturas se guardan en la carpeta temporal del sistema, dentro de `menuapp-qa`; puede elegirse otra carpeta con `MENUAPP_QA_OUTPUT`. `MENUAPP_BROWSER_CHANNEL` permite cambiar el canal instalado de navegador.
+
+Para ejecutar solo la revisión global de scroll: `MENUAPP_SCROLL_ONLY=1 PLAYWRIGHT_MODULE=/ruta/a/node_modules/playwright node tests/browser.cjs`. Comprueba las ocho vistas y las siete subsecciones de Configuración a 320, 390, 844 y 1280 px, formularios, gestos táctiles, scroll independiente, navegación por teclado y un viewport visual reducido que simula el teclado. El teclado real y las áreas seguras de Safari/iOS requieren validación en el dispositivo.
 
 Las pruebas de interfaz usan datos ficticios y bloquean servicios externos. Verifican el filtrado de semanas, el orden del historial, la edición y guardado de menús pasados/futuros, la cancelación y el reintento de errores. También verifican una recarga offline real con Service Worker e IndexedDB. No autorizan ni escriben en el Drive personal.
 

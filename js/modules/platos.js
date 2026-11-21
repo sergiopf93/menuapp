@@ -330,7 +330,7 @@ const Platos = (() => {
         }},
       ],
     });
-    setTimeout(()=>_initFormEvents(catalogo, container),50);
+    _initFormEvents(catalogo, container);
   }
 
   function _buildForm(plato, catalogo) {
@@ -640,20 +640,20 @@ const Platos = (() => {
       if(!sugg) return;
       input.addEventListener('input',()=>{
         const val=_norm(input.value);
-        if(!val||!catalogo?.length){ sugg.classList.add('hidden'); return; }
+        if(!val||!catalogo?.length){ UI.hideSuggestions(); return; }
         const matches=catalogo.filter(a=>_norm(a.nombre).includes(val)).slice(0,6);
-        if(!matches.length){ sugg.classList.add('hidden'); return; }
+        if(!matches.length){ UI.hideSuggestions(); return; }
         sugg.innerHTML=matches.map(a=>`
           <div class="categoria-option" data-nombre="${UI.escapeHtml(a.nombre)}" data-cat="${UI.escapeHtml(a.categoria||'')}">
             ${UI.escapeHtml(a.nombre)} <span style="color:var(--color-text-muted);font-size:11px">${UI.escapeHtml(a.categoria||'')}</span>
           </div>`).join('');
-        sugg.classList.remove('hidden');
+        UI.showSuggestions(input, sugg);
         sugg.querySelectorAll('.categoria-option').forEach(opt=>{
           opt.addEventListener('click',()=>{
             input.value=opt.dataset.nombre;
             const catInput=row?.querySelector('.pl-ing-cat');
             if(catInput&&opt.dataset.cat) catInput.value=opt.dataset.cat;
-            sugg.classList.add('hidden');
+            UI.hideSuggestions();
           });
         });
       });

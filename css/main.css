@@ -61,6 +61,7 @@
   --header-height:  56px;
   --bottom-nav-h:   64px;
   --content-max-w:  640px;
+  --content-padding: var(--space-4);
 
   /* Transiciones */
   --transition-fast:   150ms ease;
@@ -75,7 +76,7 @@ body {
   color: var(--color-text);
   background: var(--color-bg);
   min-height: 100dvh;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 img, svg { display: block; max-width: 100%; }
 button { cursor: pointer; border: none; background: none; font: inherit; }
@@ -107,7 +108,11 @@ ul, ol { list-style: none; }
 /* ─── App shell ──────────────────────────────────────────────────── */
 #screen-app {
   background: var(--color-bg);
-  height: 100dvh;
+  position: fixed;
+  top: var(--app-top, 0px);
+  left: 0;
+  height: var(--app-height, 100dvh);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -143,8 +148,9 @@ ul, ol { list-style: none; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4);
-  padding-bottom: calc(var(--bottom-nav-h) + var(--space-4));
+  padding: var(--content-padding);
+  overscroll-behavior-y: contain;
+  scroll-padding-block: var(--space-4);
   max-width: var(--content-max-w);
   margin: 0 auto;
   width: 100%;
@@ -152,10 +158,9 @@ ul, ol { list-style: none; }
 
 /* ─── Bottom navigation ──────────────────────────────────────────── */
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0; right: 0;
-  height: var(--bottom-nav-h);
+  position: relative;
+  flex-shrink: 0;
+  height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   display: flex;
@@ -185,7 +190,8 @@ ul, ol { list-style: none; }
   z-index: 110;
   width: 220px;
   max-width: calc(100vw - 16px);
-  max-height: calc(100dvh - 16px);
+  max-height: calc(var(--visible-height, 100dvh) - 16px);
+  overscroll-behavior: contain;
   overflow-y: auto;
   padding: var(--space-2);
   background: var(--color-surface);
@@ -334,7 +340,7 @@ ul, ol { list-style: none; }
 /* ─── Toast ──────────────────────────────────────────────────────── */
 .toast {
   position: fixed;
-  bottom: calc(var(--bottom-nav-h) + var(--space-4));
+  bottom: calc(100dvh - var(--visible-height, 100dvh) - var(--visible-top, 0px) + var(--bottom-nav-h) + var(--space-4));
   left: 50%;
   transform: translateX(-50%) translateY(20px);
   background: #1a1a1a;
@@ -413,7 +419,11 @@ ul, ol { list-style: none; }
 /* ─── Modal / Popup ──────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
-  inset: 0;
+  top: var(--visible-top, 0px);
+  left: var(--visible-left, 0px);
+  width: var(--visible-width, 100%);
+  height: var(--visible-height, 100dvh);
+  overscroll-behavior: contain;
   background: rgba(0,0,0,.5);
   display: flex;
   align-items: flex-end;
@@ -426,18 +436,23 @@ ul, ol { list-style: none; }
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-md) var(--radius-md);
   width: 100%;
   max-width: var(--content-max-w);
-  max-height: 85dvh;
-  overflow-y: auto;
-  padding: var(--space-6);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--space-4);
 }
 .modal-header {
+  flex-shrink: 0;
+  gap: var(--space-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-5);
 }
-.modal-title { font-size: var(--font-size-lg); font-weight: 700; }
+.modal-title { overflow-wrap: anywhere; font-size: var(--font-size-lg); font-weight: 700; }
 .modal-close {
+  flex-shrink: 0;
   width: 32px; height: 32px;
   border-radius: var(--radius-md);
   display: flex; align-items: center; justify-content: center;
@@ -446,14 +461,23 @@ ul, ol { list-style: none; }
   transition: background var(--transition-fast);
 }
 .modal-close:hover { background: var(--color-surface-2); }
+.modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: var(--space-3);
+}
+body.modal-open .app-content { overflow: hidden; }
 .modal-footer {
+  flex-shrink: 0;
+  flex-wrap: wrap;
   display: flex;
   gap: var(--space-3);
   margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: 1px solid var(--color-border);
 }
-.modal-footer .btn { flex: 1; }
+.modal-footer .btn { flex: 1; min-width: 0; white-space: normal; }
 
 /* ─── Chip / Badge ───────────────────────────────────────────────── */
 .badge {
@@ -498,12 +522,13 @@ ul, ol { list-style: none; }
   margin-bottom: var(--space-4);
 }
 .search-bar input {
+  min-width: 0;
   width: 100%;
   padding: var(--space-3) var(--space-4) var(--space-3) 40px;
   border: 1.5px solid var(--color-border);
   border-radius: var(--radius-full);
   background: var(--color-surface);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
 }
 .search-bar input:focus { outline: none; border-color: var(--color-primary); }
 .search-icon {
@@ -545,7 +570,7 @@ ul, ol { list-style: none; }
 
 /* ─── Responsive: Tablet ─────────────────────────────────────────── */
 @media (min-width: 768px) {
-  .app-content { padding: var(--space-6); }
+  :root { --content-padding: var(--space-6); }
   .quick-actions { grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
   .modal { border-radius: var(--radius-lg); }
   .modal-overlay { align-items: center; }
@@ -586,13 +611,18 @@ ul, ol { list-style: none; }
    Datepicker propio
    ═══════════════════════════════════════════════════════════════════ */
 .dp-overlay {
-  position: fixed; inset: 0;
+  position: fixed;
+  top: var(--visible-top, 0px); left: var(--visible-left, 0px);
+  width: var(--visible-width, 100%); height: var(--visible-height, 100dvh);
   background: rgba(0,0,0,.45);
   display: flex; align-items: center; justify-content: center;
   z-index: 9999;
   padding: var(--space-4);
 }
 .dp-modal {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
@@ -632,4 +662,26 @@ ul, ol { list-style: none; }
 .dp-footer {
   display: flex; gap: var(--space-3); justify-content: flex-end;
   border-top: 1px solid var(--color-border); padding-top: var(--space-3);
+}
+
+/* Las sugerencias escapan del recorte del formulario sin moverlo ni desplazar el fondo. */
+.floating-suggestions {
+  position: fixed;
+  right: auto;
+  z-index: 600;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.floating-suggestions [role="option"] { min-height: 44px; overflow-wrap: anywhere; }
+.floating-suggestions [aria-selected="true"] { background: var(--color-primary-light); color: var(--color-primary); }
+@media (max-height: 450px) {
+  .modal-overlay, .dp-overlay { padding: var(--space-2); }
+  .modal { padding: var(--space-3); }
+  .modal-header { margin-bottom: var(--space-2); }
+  .modal-footer { margin-top: var(--space-2); padding-top: var(--space-2); }
 }

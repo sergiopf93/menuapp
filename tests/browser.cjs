@@ -25,6 +25,10 @@ let server;
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ headless: true, channel: process.env.MENUAPP_BROWSER_CHANNEL || 'chrome' });
+  if (process.env.MENUAPP_SCROLL_ONLY === '1') {
+    await require('./scroll.browser.cjs')({ browser, origin, output });
+    return;
+  }
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await context.newPage();
   const errors = [];
@@ -348,6 +352,7 @@ let server;
     console.log(`PASS filas fijas y alineadas, scroll horizontal y gesto vertical en página: ${viewport.width}px, Inicio/Menú/edición, con y sin bebé`);
   }
   assert.deepEqual(errors, []);
+  await require('./scroll.browser.cjs')({ browser, origin, output });
   // Segunda visita real sin red: JS, CSS, iconos y caché local desde el Service Worker.
   const offlineContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const offlinePage = await offlineContext.newPage();

@@ -300,7 +300,7 @@ const Articulos = (() => {
     });
 
     // Vincula eventos del formulario DESPUÉS de que el modal inyectó el HTML en el DOM
-    setTimeout(_initFormEvents, 50);
+    _initFormEvents();
   }
 
   function _buildForm(art) {
@@ -371,19 +371,16 @@ const Articulos = (() => {
 
     catInput.addEventListener('input', () => {
       const val = Sync.normalize(catInput.value);
-      if (!val) { catSugg.classList.add('hidden'); return; }
+      if (!val) { UI.hideSuggestions(); return; }
       const matches = CATEGORIAS_ORDEN.filter(c => Sync.normalize(c).includes(val));
-      if (!matches.length) { catSugg.classList.add('hidden'); return; }
+      if (!matches.length) { UI.hideSuggestions(); return; }
       catSugg.innerHTML = matches.map(c =>
         `<div class="categoria-option" data-v="${UI.escapeHtml(c)}">${UI.escapeHtml(c)}</div>`
       ).join('');
-      catSugg.classList.remove('hidden');
+      UI.showSuggestions(catInput, catSugg);
       catSugg.querySelectorAll('.categoria-option').forEach(o => {
-        o.addEventListener('click', () => { catInput.value=o.dataset.v; catSugg.classList.add('hidden'); });
+        o.addEventListener('click', () => { catInput.value=o.dataset.v; UI.hideSuggestions(); });
       });
-    });
-    document.addEventListener('click', (e) => {
-      if (!catInput.contains(e.target)) catSugg.classList.add('hidden');
     });
   }
 

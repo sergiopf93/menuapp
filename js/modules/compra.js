@@ -170,8 +170,7 @@ const Compra = (() => {
             <input class="form-control" id="compra-extra-input" type="text"
                    placeholder="Escribe para buscar en el catálogo..." autocomplete="off"
                    style="width:100%"/>
-            <div id="compra-extra-suggestions" class="pl-ing-suggestions hidden"
-                 style="position:absolute;left:0;right:0;top:100%;z-index:100"></div>
+            <div id="compra-extra-suggestions" class="pl-ing-suggestions hidden"></div>
           </div>
           <button class="btn btn-secondary" id="compra-btn-extra">Añadir</button>
         </div>
@@ -333,7 +332,7 @@ const Compra = (() => {
       _guardarLocal(_compraActual);
       extraInput.value = '';
       _extraSeleccionado = null;
-      if(suggBox) suggBox.classList.add('hidden');
+      if(suggBox) UI.hideSuggestions();
       _renderVista();
       UI.showToast(`${nuevo.nombre} añadido`, 'success');
     }
@@ -343,27 +342,8 @@ const Compra = (() => {
     extraInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        const active = suggBox?.querySelector('.compra-sugg-item.active');
-        if (active) {
-          _extraSeleccionado = catalogo.find(a => a.id === active.dataset.id) || null;
-          extraInput.value = active.dataset.nombre;
-        }
         _addExtra();
         return;
-      }
-      if (e.key === 'Escape') { suggBox?.classList.add('hidden'); return; }
-      // Navegar sugerencias con flechas
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const items = suggBox?.querySelectorAll('.compra-sugg-item');
-        if (!items?.length) return;
-        const active = suggBox.querySelector('.compra-sugg-item.active');
-        let idx = active ? [...items].indexOf(active) : -1;
-        active?.classList.remove('active');
-        idx = e.key === 'ArrowDown'
-          ? Math.min(idx + 1, items.length - 1)
-          : Math.max(idx - 1, 0);
-        items[idx].classList.add('active');
-        e.preventDefault();
       }
     });
 
@@ -371,7 +351,7 @@ const Compra = (() => {
     extraInput?.addEventListener('input', () => {
       clearTimeout(_suggTimer);
       const val = _norm(extraInput.value);
-      if (!val || val.length < 1) { suggBox?.classList.add('hidden'); return; }
+      if (!val || val.length < 1) { UI.hideSuggestions(); return; }
 
       _suggTimer = setTimeout(() => {
         const matches = catalogo
@@ -392,14 +372,14 @@ const Compra = (() => {
             <div class="compra-sugg-crear" data-nombre="${UI.escapeHtml(extraInput.value.trim())}">
               <span>➕ Crear "<strong>${UI.escapeHtml(extraInput.value.trim())}</strong>" en el catálogo y añadir</span>
             </div>`;
-          suggBox.classList.remove('hidden');
-          suggBox.querySelector('.compra-sugg-crear')?.addEventListener('mousedown', async (e) => {
+          UI.showSuggestions(extraInput, suggBox);
+          suggBox.querySelector('.compra-sugg-crear')?.addEventListener('click', async (e) => {
             e.preventDefault();
             const nombre = extraInput.value.trim();
             if (!nombre) return;
             // Abre mini-formulario para completar los datos del artículo
             await _crearArticuloDesdeCompra(nombre);
-            suggBox.classList.add('hidden');
+            UI.hideSuggestions();
           });
           return;
         }
@@ -409,25 +389,20 @@ const Compra = (() => {
             <span class="compra-sugg-nombre">${UI.escapeHtml(a.nombre)}</span>
             <span class="compra-sugg-meta">${UI.escapeHtml(a.categoria||'')} · ${a.unidad}</span>
           </div>`).join('');
-        suggBox.classList.remove('hidden');
+        UI.showSuggestions(extraInput, suggBox);
 
         // Bind clicks en sugerencias
         suggBox.querySelectorAll('.compra-sugg-item').forEach(item => {
-          item.addEventListener('mousedown', (e) => {
-            e.preventDefault(); // evita blur del input
+          item.addEventListener('click', (e) => {
+            e.preventDefault();
             const art = catalogo.find(a => a.id === item.dataset.id);
             _extraSeleccionado = art || null;
             extraInput.value = item.dataset.nombre;
-            suggBox.classList.add('hidden');
+            UI.hideSuggestions();
             _addExtra();
           });
         });
       }, 150);
-    });
-
-    // Cierra sugerencias al perder foco
-    extraInput?.addEventListener('blur', () => {
-      setTimeout(() => suggBox?.classList.add('hidden'), 200);
     });
   }
 

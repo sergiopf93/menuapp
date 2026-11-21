@@ -134,7 +134,7 @@ const Historial = (() => {
     ];
 
     return `
-      <div style="overflow-x:auto">
+      <div class="hist-table-scroll">
         <table class="menu-tabla" style="min-width:400px">
           <thead>
             <tr>
@@ -299,7 +299,7 @@ const Historial = (() => {
     const informe = analizarMenus(datosFuente.menus, datosFuente.catalogo);
     const numero = valor => valor === null ? 'Sin datos suficientes' : valor.toLocaleString('es-ES', { maximumFractionDigits: 2 });
     const tabla = (etiqueta, encabezados, filas) => `
-      <div role="region" aria-label="${etiqueta}" tabindex="0" style="overflow-x:auto;margin:var(--space-3) 0">
+      <div role="region" aria-label="${etiqueta}" tabindex="0" class="hist-table-scroll" style="margin:var(--space-3) 0">
         <table class="menu-tabla hist-analisis-tabla" style="min-width:620px">
           <caption class="text-sm" style="text-align:left;padding:var(--space-2)">${etiqueta}</caption>
           <thead><tr>${encabezados.map(texto => `<th scope="col">${texto}</th>`).join('')}</tr></thead>
